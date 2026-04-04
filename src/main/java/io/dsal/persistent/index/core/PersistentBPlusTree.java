@@ -57,7 +57,7 @@ import java.util.function.Consumer;
  *
  * <p>Internal keys are separators: values exist only in leaves. Descent uses
  * {@link Search#lowerBound}; if the search hits a separator exactly, the next
- * child index is one past that key (see {@link #get(Node, Object)}).</p>
+ * child index is one past that key (see {@link #get(Node, K)}).</p>
  *
  * <h2>Invariants</h2>
  *
@@ -225,7 +225,7 @@ public class PersistentBPlusTree<K, V> implements Iterable<KeyVal<K, V>> {
     }
 
     /**
-     * Same semantics as {@link #range(Object, Object)} but fills {@code out}.
+     * Same semantics as {@link #range(K, K)} but fills {@code out}.
      *
      * <p><b>Snapshot:</b> {@link #root} is captured once at entry; elements added
      * to {@code out} come from that version only.</p>
@@ -372,7 +372,7 @@ public class PersistentBPlusTree<K, V> implements Iterable<KeyVal<K, V>> {
         var result = put(root, key, val);
         root = switch (result) {
             case PutResult.NoSplit<K, V>(var newRoot, _) -> newRoot;
-            case PutResult.Split<K, V>(var left, var right, var promotedKey, _) ->
+            case PutResult.Split<K, V>(var left, var right, var promotedKey) ->
                     new Node.Internal<>(ksf.single(promotedKey), Children.of(left, right));
         };
 
@@ -397,7 +397,7 @@ public class PersistentBPlusTree<K, V> implements Iterable<KeyVal<K, V>> {
 
     /**
      * Descends to the child chosen by {@link Search#lowerBound}, applies the child
-     * {@link #put(Node, Object, Object)} result, then either replaces one child,
+     * {@link #put(Node, K, V)} result, then either replaces one child,
      * absorbs a split into this node, or splits this internal node.
      *
      * @param keys     separator keys of this internal node
@@ -416,20 +416,19 @@ public class PersistentBPlusTree<K, V> implements Iterable<KeyVal<K, V>> {
                     new Node.Internal<>(keys, children.replace(childIdx, node)),
                     replaced
             );
-            case PutResult.Split<K, V>(var left, var right, var promotedKey, var replaced) -> {
+            case PutResult.Split<K, V>(var left, var right, var promotedKey) -> {
                 if (keys.size() < maxKeys) {
                     yield new PutResult.NoSplit<>(new Node.Internal<>(
                             keys.insert(childIdx, promotedKey),
                             children.insert(childIdx, left, right)
-                    ), replaced);
+                    ), null);
                 }
                 var keySplit = keys.insertAndSplit(childIdx, minKeys, promotedKey);
                 var childrenSplit = children.insertAndSplit(childIdx, minKeys, left, right);
                 yield new PutResult.Split<>(
                         new Node.Internal<>(keySplit.left(), childrenSplit.left()),
                         new Node.Internal<>(keySplit.right(), childrenSplit.right()),
-                        keySplit.promotedKey(),
-                        replaced
+                        keySplit.promotedKey()
                 );
 
             }
@@ -470,8 +469,7 @@ public class PersistentBPlusTree<K, V> implements Iterable<KeyVal<K, V>> {
             return new PutResult.Split<>(
                     left,
                     right,
-                    keySplit.promotedKey(),
-                    null
+                    keySplit.promotedKey()
             );
         }
     }
@@ -482,7 +480,7 @@ public class PersistentBPlusTree<K, V> implements Iterable<KeyVal<K, V>> {
      * Removes {@code key} and returns the value previously stored, or {@code null}
      * if the key was absent.
      *
-     * <p>Loads {@link #root} once, runs {@link #remove(Node, Object)}, then
+     * <p>Loads {@link #root} once, runs {@link #remove(Node, K)}, then
      * publishes a new root according to {@link DeleteResult}. {@code NotFound}
      * leaves {@code root} unchanged.</p>
      *
