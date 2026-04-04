@@ -2,6 +2,21 @@ package io.dsal.persistent.index.layout;
 
 import java.util.Arrays;
 
+/**
+ * Leaf value vector aligned with {@link KeyStorage}: {@link #size()} matches the
+ * sibling key storage, and index {@code i} pairs with key {@code i}. Values are
+ * not compared or ordered; only keys define tree order. Mutations return new
+ * instances (copy-on-write).
+ *
+ * <p>Insert, remove, replace, merge, and fused helpers use the same index
+ * contracts as the corresponding {@link KeyStorage} operations. When a leaf
+ * splits, apply the same logical split to keys and values so {@link KeySplit} and
+ * {@link ValueSplit} stay aligned.</p>
+ *
+ * @param <V> value type
+ * @see KeyStorage
+ * @see ValueSplit
+ */
 public class ValueStorage<V> {
     private final V[] vals;
 
@@ -9,20 +24,41 @@ public class ValueStorage<V> {
         this.vals = vals;
     }
 
+    /**
+     * Returns storage holding a single value (for example a new one-key leaf).
+     *
+     * @param val sole payload
+     */
     public static <V> ValueStorage<V> of(V val) {
         return new ValueStorage<>((V[]) new Object[]{val});
     }
 
+    /** Number of values (equals paired {@link KeyStorage#size()} in a leaf). */
     public int size() {
         return vals.length;
     }
 
+    /**
+     * Value at {@code idx}.
+     *
+     * @param idx index in {@code [0, size())}
+     * @return value at {@code idx}
+     * @throws IndexOutOfBoundsException if {@code idx} is out of range
+     */
     public V val(int idx) {
         checkIndexBounds(idx);
         return vals[idx];
     }
 
-
+    /**
+     * Returns storage with {@code val} inserted at {@code idx}, shifting higher
+     * indices right. Same bounds as {@link KeyStorage#insert(int, Object)}.
+     *
+     * @param idx insertion position in {@code [0, size()]}
+     * @param val value to insert
+     * @return storage after insert
+     * @throws IndexOutOfBoundsException if {@code idx} is out of range for insert
+     */
     public ValueStorage<V> insert(int idx, V val) {
         checkInsertBounds(idx);
         var newVals = (V[]) new Object[vals.length + 1];
@@ -34,6 +70,14 @@ public class ValueStorage<V> {
         return new ValueStorage<>(newVals);
     }
 
+    /**
+     * Replaces the value at {@code idx}; length unchanged.
+     *
+     * @param idx index in {@code [0, size())}
+     * @param val new value
+     * @return storage after replace
+     * @throws IndexOutOfBoundsException if {@code idx} is out of range
+     */
     public ValueStorage<V> replace(int idx, V val) {
         checkIndexBounds(idx);
 
@@ -43,6 +87,13 @@ public class ValueStorage<V> {
         return new ValueStorage<>(newVals);
     }
 
+    /**
+     * Removes the value at {@code idx}, shifting later indices left.
+     *
+     * @param idx index to remove
+     * @return storage after removal
+     * @throws IndexOutOfBoundsException if {@code idx} is out of range
+     */
     public ValueStorage<V> remove(int idx) {
         checkIndexBounds(idx);
         var newVals = (V[]) new Object[vals.length - 1];
@@ -53,6 +104,15 @@ public class ValueStorage<V> {
         return new ValueStorage<>(newVals);
     }
 
+    /**
+     * Fused remove then insert; same semantics as {@link KeyStorage#removeAndInsert(int, int, Object)}.
+     *
+     * @param removeIdx index removed first
+     * @param insertIdx insertion index in the reduced sequence
+     * @param val       value to insert
+     * @return storage after remove then insert
+     * @throws IndexOutOfBoundsException if an index is invalid for its step
+     */
     public ValueStorage<V> removeAndInsert(int removeIdx, int insertIdx, V val) {
         checkIndexBounds(removeIdx);
         checkIndexBounds(insertIdx);
@@ -76,6 +136,14 @@ public class ValueStorage<V> {
         return new ValueStorage<>(newVals);
     }
 
+    /**
+     * Concatenates this sequence and {@code other} (this first). Same requirement
+     * as {@link KeyStorage#merge(KeyStorage)}: paired with key merge when combining
+     * leaves.
+     *
+     * @param other values to append after this storage
+     * @return merged storage
+     */
     public ValueStorage<V> merge(ValueStorage<V> other) {
         var newVals = (V[]) new Object[vals.length + other.size()];
         System.arraycopy(vals, 0, newVals, 0, vals.length);
@@ -84,6 +152,17 @@ public class ValueStorage<V> {
         return new ValueStorage<>(newVals);
     }
 
+    /**
+     * Inserts {@code val} at {@code idx}, then appends {@code other}. Same layout
+     * as {@link KeyStorage#insertAndMerge(int, Object, KeyStorage)} for paired
+     * key/value merge paths.
+     *
+     * @param insertIdx index at which to insert before merging
+     * @param val       inserted value
+     * @param other     tail values to append
+     * @return merged storage
+     * @throws IndexOutOfBoundsException if {@code insertIdx} is invalid for insert
+     */
     public ValueStorage<V> insertAndMerge(int insertIdx, V val, ValueStorage<V> other) {
         checkInsertBounds(insertIdx);
 
@@ -99,6 +178,17 @@ public class ValueStorage<V> {
         return new ValueStorage<>(newVals);
     }
 
+    /**
+     * Fused insert then split; mirrors {@link KeyStorage#insertAndSplit(int, int, Object)}.
+     * Use with {@link KeySplit} from the same operation so left/right value runs
+     * match left/right keys.
+     *
+     * @param insertIdx index for the inserted value in the pre-insert sequence
+     * @param splitIdx  split index in the post-insert sequence
+     * @param val       value inserted before the split
+     * @return left and right value storages
+     * @throws IndexOutOfBoundsException if an index is invalid for insert or split
+     */
     public ValueSplit<V> insertAndSplit(int insertIdx, int splitIdx, V val) {
         checkInsertBounds(insertIdx);
         checkSplitBounds(splitIdx);
