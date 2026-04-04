@@ -31,7 +31,7 @@ import java.util.function.Consumer;
  * <h2>Snapshot behavior</h2>
  *
  * <p>Read APIs that begin by loading {@code root} into a local variable
- * (and iterators created via {@link #iterator()} or {@link #rangeIterator()},
+ * (and iterators created via {@link #iterator()} or {@link #rangeIterator(K, K)}},
  * which capture {@code root} at construction) operate on that fixed version
  * for their entire execution, even if another thread publishes a newer
  * {@code root}.</p>
