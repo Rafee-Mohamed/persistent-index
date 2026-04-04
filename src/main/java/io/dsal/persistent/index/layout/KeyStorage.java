@@ -32,11 +32,14 @@ package io.dsal.persistent.index.layout;
  *
  * <h2>Mutability</h2>
  *
- * <p>This interface does not require immutable implementations. Implementations may
- * update storage in place or allocate new structures, but each method must
- * expose the correct logical result of the operation. Callers of the tree treat
- * the returned value as the state to use going forward; whether the previous
- * instance is reused internally is an implementation detail.</p>
+ * <p>Implementations may be in-place or copy-on-write; each method must return
+ * the correct logical result. Callers use the returned instance as the new state;
+ * reuse of the previous storage is an implementation detail.</p>
+ *
+ * <p>Default methods (e.g. fused {@code insert} + {@code split}, {@code remove} +
+ * {@code insert}, {@code insert} + {@code merge}) are defined as the sequential
+ * composition of primitive operations; concrete types may implement them with a
+ * single pass or fewer allocations as long as the observable result matches.</p>
  *
  * <h2>Responsibilities</h2>
  *
@@ -165,6 +168,30 @@ public interface KeyStorage<K> extends IndexedComparator<K> {
     KeySplit<K> split(int idx);
 
     /**
+     * Splits this storage into a left part, a right part, and a promoted separator
+     * for the parent, <em>around</em> the key at {@code idx}.
+     *
+     * <p>Keys with indices {@code [0, idx)} go to {@link KeySplit#left()}; keys with
+     * indices {@code [idx + 1, size())} go to {@link KeySplit#right()}. The key at
+     * {@code idx} appears in neither child sequence; {@link KeySplit#promotedKey()} is
+     * that key (the parent separator).
+     *
+     * <pre>
+     *   Original:  [ k0 | k1 | k2 | k3 ]     indices 0 .. 3
+     *   splitAround(1):
+     *     left()   = [ k0 ]
+     *     right()  = [ k2 | k3 ]
+     *     promotedKey() = k1
+     * </pre>
+     *
+     * @param idx index of the key split around (excluded from left and right; becomes
+     *            {@link KeySplit#promotedKey()})
+     * @return left storage, right storage, and promoted key
+     * @throws IndexOutOfBoundsException if {@code idx} is not a valid split index
+     */
+    KeySplit<K> splitAround(int idx);
+
+    /**
      * Returns storage containing all keys of this sequence followed by all keys of
      * {@code other}, in order.
      *
@@ -213,6 +240,40 @@ public interface KeyStorage<K> extends IndexedComparator<K> {
      */
     default KeySplit<K> insertAndSplit(int insertIdx, int splitIdx, K key) {
         return insert(insertIdx, key).split(splitIdx);
+    }
+
+    /**
+     * Fused {@link #insert(int, Object)} then {@link #splitAround(int)}: inserts
+     * {@code key} at {@code insertIdx}, then splits around {@code splitIdx} on the
+     * post-insert sequence, except when {@code insertIdx == splitIdx} (then
+     * {@link #splitAround(int)} runs on the pre-insert sequence and {@code key} is
+     * not inserted).
+     *
+     * <p>When {@code insertIdx != splitIdx}, equivalent to
+     * {@code insert(insertIdx, key).splitAround(splitIdx)}; when equal, equivalent to
+     * {@code splitAround(insertIdx)}. {@link KeySplit#promotedKey()} follows
+     * {@link #splitAround(int)} (the key at the split-around index in the sequence
+     * the split is applied to). Default implementations follow that shape; optimized
+     * implementations may fuse work but must match the same observable result.</p>
+     *
+     * <pre>
+     *   Before insert:  [ 10 | 20 | 30 | 40 ]     size 4, indices 0 .. 3
+     *   insert(1, 15)   --&gt;  [ 10 | 15 | 20 | 30 | 40 ]     size 5
+     *   splitAround(3)  --&gt;  per {@link #splitAround(int)} on that row
+     *
+     *   Equivalent to:  insert(insertIdx, key).splitAround(splitIdx)
+     *                    or splitAround(insertIdx) when insertIdx == splitIdx
+     * </pre>
+     *
+     * @param insertIdx index at which to insert {@code key} in the pre-insert sequence
+     * @param splitIdx  split-around index (post-insert row, or pre-insert when equal)
+     * @param key       key to insert
+     * @return split result after insert and split-around
+     */
+    default KeySplit<K> insertAndSplitAround(int insertIdx, int splitIdx, K key) {
+        return insertIdx == splitIdx
+                ? splitAround(insertIdx)
+                : insert(insertIdx, key).splitAround(splitIdx);
     }
 
     /**

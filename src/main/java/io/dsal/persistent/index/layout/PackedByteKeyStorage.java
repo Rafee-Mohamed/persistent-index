@@ -151,6 +151,30 @@ public class PackedByteKeyStorage implements KeyStorage<byte[]> {
     }
 
     @Override
+    public KeySplit<byte[]> splitAround(int idx) {
+        checkSplitBounds(idx);
+        var leftKeys = new byte[offsets[idx]];
+        var leftOffsets = new int[idx + 1];
+
+        System.arraycopy(keys, 0, leftKeys, 0, leftKeys.length);
+        System.arraycopy(offsets, 0, leftOffsets, 0, leftOffsets.length);
+
+        var rightKeys = new byte[keys.length - offsets[idx + 1]];
+        var rightOffsets = new int[offsets.length - idx - 1];
+
+        System.arraycopy(keys, offsets[idx + 1], rightKeys, 0, rightKeys.length);
+
+        for (var i = idx + 1; i < offsets.length; i++) {
+            rightOffsets[i - idx - 1] = offsets[i] -  offsets[idx + 1];
+        }
+
+        var leftKeyStorage = new PackedByteKeyStorage(leftKeys, leftOffsets, comparator);
+        var rightKeyStorage = new PackedByteKeyStorage(rightKeys, rightOffsets, comparator);
+
+        return new KeySplit<>(leftKeyStorage, rightKeyStorage, key(idx));
+    }
+
+    @Override
     public KeyStorage<byte[]> merge(KeyStorage<byte[]> other) {
         if (!(other instanceof PackedByteKeyStorage otherStorage)) {
             throw new IllegalArgumentException("Incompatible KeyStorage to merge");
@@ -269,6 +293,97 @@ public class PackedByteKeyStorage implements KeyStorage<byte[]> {
         // therefore, at splitIdx a key will be present which is the first key
         // of rightKeyStorage, so key(0) won't fail.
         return new KeySplit<>(leftKeyStorage, rightKeyStorage, rightKeyStorage.key(0));
+    }
+
+    @Override
+    public KeySplit<byte[]> insertAndSplitAround(int insertIdx, int splitIdx, byte[] key) {
+        if (insertIdx == splitIdx) {
+            return splitAround(insertIdx);
+        }
+
+        checkInsertBounds(insertIdx);
+        checkSplitBounds(splitIdx);
+
+        if (insertIdx > splitIdx) {
+            var leftKeys = new byte[offsets[splitIdx]];
+            System.arraycopy(keys, 0, leftKeys, 0, leftKeys.length);
+
+            var leftOffsets = new int[splitIdx + 1];
+            System.arraycopy(offsets, 0, leftOffsets, 0, leftOffsets.length);
+
+            var leftKeyStorage = new PackedByteKeyStorage(leftKeys, leftOffsets, comparator);
+
+            var rightKeys = new byte[keys.length - offsets[splitIdx + 1] + key.length];
+
+            // prefix, newKey, suffix
+            // offsets -> [splitIdx, insertIdx) [insertIdx, insertIdx + key.length) [insertIdx + key.length, keys.length + key.length)
+
+            var prefixStart = offsets[splitIdx + 1];
+            var newKeyStart = offsets[insertIdx];
+            var prefixLen = newKeyStart - prefixStart;
+            var suffixStart = prefixLen + key.length;
+            var suffixLen = keys.length - newKeyStart;
+
+            System.arraycopy(keys, prefixStart, rightKeys, 0, prefixLen);
+            System.arraycopy(key, 0, rightKeys, prefixLen, key.length);
+            System.arraycopy(keys, newKeyStart, rightKeys,  suffixStart, suffixLen);
+
+            var rightOffsets = new int[offsets.length - splitIdx];
+
+            // prefix offset
+            for (var i = splitIdx + 1; i <= insertIdx; i++) {
+                rightOffsets[i - splitIdx - 1] = offsets[i] - prefixStart;
+            }
+
+            // insert offset
+            rightOffsets[insertIdx - splitIdx] = rightOffsets[insertIdx - splitIdx - 1] + key.length;
+
+            // suffix offset
+            for (var i = insertIdx + 1; i < offsets.length; i++) {
+                rightOffsets[i - splitIdx] = offsets[i] - prefixStart + key.length;
+            }
+
+            var rightKeyStorage = new PackedByteKeyStorage(rightKeys, rightOffsets, comparator);
+
+            return new KeySplit<>(leftKeyStorage, rightKeyStorage, key(splitIdx));
+        }
+
+        var leftKeys = new byte[offsets[splitIdx] + key.length];
+
+        var prefixLen = offsets[insertIdx];
+        var suffixStart = prefixLen + key.length;
+        var suffixLen = offsets[splitIdx] - prefixLen;
+
+        System.arraycopy(keys, 0, leftKeys, 0, prefixLen);
+        System.arraycopy(key, 0, leftKeys, prefixLen, key.length);
+        System.arraycopy(keys, prefixLen, leftKeys,  suffixStart, suffixLen);
+
+        var leftOffsets = new int[splitIdx + 1];
+
+        // prefix offset
+        System.arraycopy(offsets, 0, leftOffsets, 0, insertIdx + 1);
+
+        // insert offset
+        leftOffsets[insertIdx + 1] = leftOffsets[insertIdx] + key.length;
+
+        // suffix offset
+        for (var i = insertIdx + 1; i < offsets[splitIdx]; i++) {
+            leftOffsets[i + 1] = offsets[i] + key.length;
+        }
+
+        var leftKeyStorage = new PackedByteKeyStorage(leftKeys, leftOffsets, comparator);
+
+        var rightKeys = new byte[keys.length - offsets[splitIdx]];
+        System.arraycopy(keys, offsets[splitIdx], rightKeys, 0, rightKeys.length);
+
+        var rightOffsets = new int[offsets.length - splitIdx];
+        for (var i = 0; i < rightOffsets.length; i++) {
+            rightOffsets[i] = offsets[i + splitIdx] - offsets[splitIdx];
+        }
+
+        var rightKeyStorage = new PackedByteKeyStorage(rightKeys, rightOffsets, comparator);
+
+        return new KeySplit<>(leftKeyStorage, rightKeyStorage, key(splitIdx));
     }
 
     @Override

@@ -99,6 +99,20 @@ public class ArrayKeyStorage<K> implements KeyStorage<K> {
     }
 
     @Override
+    public KeySplit<K> splitAround(int idx) {
+        checkSplitBounds(idx);
+        var leftKeys = (K[]) new Object[idx];
+        System.arraycopy(keys, 0, leftKeys, 0, idx);
+
+        var rightKeys = (K[]) new Object[keys.length - idx - 1];
+        System.arraycopy(keys, idx + 1, rightKeys, 0, rightKeys.length);
+
+        var leftKeyStorage = new ArrayKeyStorage<>(leftKeys, comparator);
+        var rightKeyStorage = new ArrayKeyStorage<>(rightKeys, comparator);
+        return new KeySplit<>(leftKeyStorage, rightKeyStorage, keys[idx]);
+    }
+
+    @Override
     public KeyStorage<K> merge(KeyStorage<K> other) {
         if (!(other instanceof ArrayKeyStorage<K> otherStorage)) {
             throw new IllegalArgumentException("Incompatible KeyStorage to merge");
@@ -144,6 +158,42 @@ public class ArrayKeyStorage<K> implements KeyStorage<K> {
         var leftKeyStorage = new  ArrayKeyStorage<>(leftKeys, comparator);
         var rightKeyStorage = new  ArrayKeyStorage<>(rightKeys, comparator);
         return new KeySplit<>(leftKeyStorage, rightKeyStorage, rightKeyStorage.key(0));
+    }
+
+    @Override
+    public KeySplit<K> insertAndSplitAround(int insertIdx, int splitIdx, K key) {
+        if (insertIdx == splitIdx) {
+            return splitAround(insertIdx);
+        }
+
+        if (insertIdx > splitIdx) {
+            var leftKeys = (K[]) new Object[splitIdx];
+            System.arraycopy(keys, 0, leftKeys, 0, splitIdx);
+
+            var rightKeys = (K[]) new Object[keys.length - splitIdx];
+            var prefixLen = insertIdx - splitIdx - 1;
+            var suffixLen = keys.length - insertIdx;
+
+            System.arraycopy(keys, splitIdx + 1, rightKeys, 0, prefixLen);
+            rightKeys[prefixLen] = key;
+            System.arraycopy(keys, insertIdx, rightKeys, prefixLen + 1, suffixLen);
+
+            var leftKeyStorage = new  ArrayKeyStorage<>(leftKeys, comparator);
+            var rightKeyStorage = new  ArrayKeyStorage<>(rightKeys, comparator);
+            return new KeySplit<>(leftKeyStorage, rightKeyStorage, keys[splitIdx]);
+        }
+
+        var leftKeys = (K[]) new Object[splitIdx];
+        System.arraycopy(keys, 0, leftKeys, 0, insertIdx);
+        leftKeys[insertIdx] = key;
+        System.arraycopy(keys, insertIdx, leftKeys, insertIdx + 1, splitIdx - insertIdx - 1);
+
+        var rightKeys = (K[]) new Object[keys.length - splitIdx];
+        System.arraycopy(keys, splitIdx, rightKeys, 0, rightKeys.length);
+
+        var leftKeyStorage = new  ArrayKeyStorage<>(leftKeys, comparator);
+        var rightKeyStorage = new  ArrayKeyStorage<>(rightKeys, comparator);
+        return new KeySplit<>(leftKeyStorage, rightKeyStorage, keys[splitIdx - 1]);
     }
 
     @Override

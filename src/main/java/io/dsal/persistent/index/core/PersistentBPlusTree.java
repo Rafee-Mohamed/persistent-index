@@ -433,11 +433,11 @@ public class PersistentBPlusTree<K, V> implements Iterable<KeyVal<K, V>> {
                             children.insert(childIdx, left, right)
                     ), null);
                 }
-                var keySplit = keys.insertAndSplit(childIdx, minKeys, promotedKey);
+                var keySplit = keys.insertAndSplitAround(childIdx, minKeys, promotedKey);
                 var childrenSplit = children.insertAndSplit(childIdx, minKeys + 1, left, right);
                 yield new PutResult.Split<>(
                         new Node.Internal<>(keySplit.left(), childrenSplit.left()),
-                        new Node.Internal<>(keySplit.right().remove(0), childrenSplit.right()),
+                        new Node.Internal<>(keySplit.right(), childrenSplit.right()),
                         keySplit.promotedKey()
                 );
 
