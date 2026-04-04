@@ -1,5 +1,11 @@
 package io.dsal.persistent.index.layout;
 
+/**
+ * Lexicographic order on unsigned bytes: compares byte values as {@code 0..255},
+ * then shorter keys before longer keys when one is a prefix of the other.
+ * Suitable for raw binary keys where Java's signed {@code byte} would otherwise
+ * mis-order negative values.
+ */
 public class LexigographicPackedByteComparator implements PackedByteComparator {
     @Override
     public int compare(byte[] bytes, int start, int end, byte[] key) {

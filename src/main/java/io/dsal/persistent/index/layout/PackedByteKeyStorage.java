@@ -2,6 +2,19 @@ package io.dsal.persistent.index.layout;
 
 import java.util.Arrays;
 
+/**
+ * {@link KeyStorage} for variable-length {@code byte[]} keys stored in one
+ * contiguous {@code byte[]} plus an offset table: key {@code i} occupies
+ * {@code keys[offsets[i]) .. keys[offsets[i+1])}. Mutations allocate new backing
+ * arrays. {@link #key(int)} returns a copy of that range.
+ *
+ * <p>{@link #compare(int, byte[])} forwards slices to {@link PackedByteComparator}.
+ * {@link #merge(KeyStorage)} and {@link #insertAndMerge(int, byte[], KeyStorage)}
+ * require the other storage to be {@code PackedByteKeyStorage} with the same
+ * comparator semantics.</p>
+ *
+ * @see PackedByteKeyStorageFactory
+ */
 public class PackedByteKeyStorage implements KeyStorage<byte[]> {
 
     // key at ith position -> keys[offsets[i] ... offsets[i+1])
@@ -9,6 +22,13 @@ public class PackedByteKeyStorage implements KeyStorage<byte[]> {
     private final int[] offsets; // size k + 1
     private final PackedByteComparator comparator;
 
+    /**
+     * @param keys       packed bytes for all keys in order; not to be mutated by
+     *                   callers after construction
+     * @param offsets    length {@code keyCount + 1}; {@code offsets[i]} through
+     *                   {@code offsets[i+1]} bound key {@code i}
+     * @param comparator used for {@link #compare(int, byte[])}
+     */
     public PackedByteKeyStorage(byte[] keys, int[] offsets, PackedByteComparator comparator) {
         this.keys = keys;
         this.offsets = offsets;

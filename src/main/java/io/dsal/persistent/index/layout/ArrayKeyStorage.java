@@ -3,11 +3,28 @@ package io.dsal.persistent.index.layout;
 import java.util.Arrays;
 import java.util.Comparator;
 
+/**
+ * {@link KeyStorage} backed by a reference array. Each mutating operation returns
+ * a new instance with a copied array (copy-on-write). {@link #compare(int, K)}
+ * delegates to the {@link Comparator} on {@link #key(int)}.
+ *
+ * <p>{@link #merge(KeyStorage)} and {@link #insertAndMerge(int, K, KeyStorage)}
+ * require the other storage to be {@code ArrayKeyStorage} with a compatible
+ * comparator (same ordering).</p>
+ *
+ * @param <K> key type
+ * @see ArrayKeyStorageFactory
+ */
 public class ArrayKeyStorage<K> implements KeyStorage<K> {
     private final K[] keys;
     private final Comparator<K> comparator;
 
-
+    /**
+     * @param keys        sorted key sequence; not copied defensively; callers must
+     *                    not mutate after construction
+     * @param comparator  ordering for {@link #compare(int, K)}; must match
+     *                    key order in {@code keys}
+     */
     public ArrayKeyStorage(K[] keys, Comparator<K> comparator) {
         this.keys = keys;
         this.comparator = comparator;
