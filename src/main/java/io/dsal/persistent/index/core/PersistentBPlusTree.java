@@ -23,7 +23,7 @@ public class PersistentBPlusTree<K, V> implements Iterable<KeyVal<K, V>>{
     private final int minKeys;
     private final KeyStorageFactory<K> ksf;
 
-    PersistentBPlusTree(int maxKeys, KeyStorageFactory<K> ksf) {
+    public PersistentBPlusTree(int maxKeys, KeyStorageFactory<K> ksf) {
         this.maxKeys = maxKeys;
         this.minKeys = maxKeys / 2;
         this.ksf = ksf;
@@ -31,7 +31,7 @@ public class PersistentBPlusTree<K, V> implements Iterable<KeyVal<K, V>>{
 
     // ====== GET ======
 
-    V get(K key) {
+    public V get(K key) {
         var node = root;
         if (node == null) {
             return null;
@@ -57,7 +57,7 @@ public class PersistentBPlusTree<K, V> implements Iterable<KeyVal<K, V>>{
 
     // ====== RANGE ======
 
-    List<KeyVal<K, V>> range(K from, K to) {
+    public List<KeyVal<K, V>> range(K from, K to) {
         var node = root;
         if (node == null) {
             return List.of();
@@ -125,7 +125,7 @@ public class PersistentBPlusTree<K, V> implements Iterable<KeyVal<K, V>>{
 
     // ====== PUT ======
 
-    V put(K key, V val) {
+    public V put(K key, V val) {
         var node = root;
         if (node == null) {
             root = new Node.Leaf<>(

@@ -3,7 +3,7 @@ package io.dsal.persistent.index.layout;
 public final class PackedByteKeyStorageFactory implements KeyStorageFactory<byte[]> {
     private final PackedByteComparator comparator;
 
-    PackedByteKeyStorageFactory(PackedByteComparator comparator) {
+    public PackedByteKeyStorageFactory(PackedByteComparator comparator) {
         this.comparator = comparator;
     }
 
