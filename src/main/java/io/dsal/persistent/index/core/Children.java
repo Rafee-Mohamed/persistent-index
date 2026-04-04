@@ -261,9 +261,9 @@ public class Children<K, V> {
         System.arraycopy(nodes, 0, newNodes, 0, unchangedPrefixEnd);
 
         if (insertIdx > removeIdx) {
-            System.arraycopy(nodes, removeIdx + 1, newNodes, removeIdx, insertIdx - removeIdx - 1);
+            System.arraycopy(nodes, removeIdx + 1, newNodes, removeIdx, insertIdx - removeIdx);
             newNodes[insertIdx] = node;
-            System.arraycopy(nodes, insertIdx, newNodes, insertIdx + 1, nodes.length - insertIdx);
+            System.arraycopy(nodes, insertIdx + 1, newNodes, insertIdx + 1, nodes.length - insertIdx - 1);
         } else { // insert then remove, insertIdx == prefixEnd
             newNodes[insertIdx] = node;
             System.arraycopy(nodes, insertIdx, newNodes, insertIdx + 1, removeIdx - insertIdx);
@@ -324,11 +324,11 @@ public class Children<K, V> {
             );
         }
 
-        var leftNodes = (Node<K, V>[]) new Node[splitIdx + 1];
+        var leftNodes = (Node<K, V>[]) new Node[splitIdx];
         System.arraycopy(nodes, 0, leftNodes, 0, insertIdxForRight);
         leftNodes[insertIdx] = left;
         leftNodes[insertIdxForRight] = right;
-        System.arraycopy(nodes, insertIdxForRight, leftNodes, insertIdxForRight + 1, splitIdx - insertIdxForRight);
+        System.arraycopy(nodes, insertIdxForRight, leftNodes, insertIdxForRight + 1, splitIdx - insertIdxForRight - 1);
 
         var splitIdxAfterInsertion = splitIdx - 1;
         var rightNodes = (Node<K, V>[]) new Node[nodes.length - splitIdxAfterInsertion];

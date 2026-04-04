@@ -132,10 +132,10 @@ public class ArrayKeyStorage<K> implements KeyStorage<K> {
             return new KeySplit<>(leftKeyStorage, rightKeyStorage, rightKeyStorage.key(0));
         }
 
-        var leftKeys = (K[]) new Object[splitIdx + 1];
+        var leftKeys = (K[]) new Object[splitIdx];
         System.arraycopy(keys, 0, leftKeys, 0, insertIdx);
         leftKeys[insertIdx] = key;
-        System.arraycopy(keys, insertIdx, leftKeys, insertIdx + 1, splitIdx - insertIdx);
+        System.arraycopy(keys, insertIdx, leftKeys, insertIdx + 1, splitIdx - insertIdx - 1);
 
         var splitIdxAfterInsertion = splitIdx - 1;
         var rightKeys = (K[]) new Object[keys.length - splitIdxAfterInsertion];
@@ -158,9 +158,9 @@ public class ArrayKeyStorage<K> implements KeyStorage<K> {
         System.arraycopy(keys, 0, newKeys, 0, unchangedPrefixEnd);
 
         if (insertIdx > removeIdx) {
-            System.arraycopy(keys, removeIdx + 1, newKeys, removeIdx, insertIdx - removeIdx - 1);
+            System.arraycopy(keys, removeIdx + 1, newKeys, removeIdx, insertIdx - removeIdx);
             newKeys[insertIdx] = key;
-            System.arraycopy(keys, insertIdx, newKeys, insertIdx + 1, keys.length - insertIdx);
+            System.arraycopy(keys, insertIdx + 1, newKeys, insertIdx + 1, keys.length - insertIdx - 1);
         } else { // insert then remove, insertIdx == prefixEnd
             newKeys[insertIdx] = key;
             System.arraycopy(keys, insertIdx, newKeys, insertIdx + 1, removeIdx - insertIdx);

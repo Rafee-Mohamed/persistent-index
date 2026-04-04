@@ -231,14 +231,13 @@ public class PackedByteKeyStorage implements KeyStorage<byte[]> {
         var leftKeys = new byte[offsets[splitIdx] + key.length];
 
         var prefixStart = 0;
-        var newKeyStart = offsets[insertIdx];
-        var prefixLen = newKeyStart;
+        var prefixLen = offsets[insertIdx];
         var suffixStart = prefixLen + key.length;
-        var suffixLen = keys.length - newKeyStart;
+        var suffixLen = offsets[splitIdx] - prefixLen;
 
         System.arraycopy(keys, prefixStart, leftKeys, 0, prefixLen);
         System.arraycopy(key, 0, leftKeys, prefixLen, key.length);
-        System.arraycopy(keys, newKeyStart, leftKeys,  suffixStart, suffixLen);
+        System.arraycopy(keys, prefixLen, leftKeys,  suffixStart, suffixLen);
 
         var leftOffsets = new int[splitIdx + 1];
 
@@ -249,7 +248,7 @@ public class PackedByteKeyStorage implements KeyStorage<byte[]> {
         leftOffsets[insertIdx + 1] = leftOffsets[insertIdx] + key.length;
 
         // suffix offset
-        for (var i = insertIdx + 1; i < offsets.length; i++) {
+        for (var i = insertIdx + 1; i < offsets[splitIdx]; i++) {
             leftOffsets[i + 1] = offsets[i] + key.length;
         }
 
@@ -275,7 +274,8 @@ public class PackedByteKeyStorage implements KeyStorage<byte[]> {
     @Override
     public KeyStorage<byte[]> removeAndInsert(int removeIdx, int insertIdx, byte[] key) {
         checkIndexBounds(removeIdx);
-        checkInsertBounds(insertIdx);
+        checkIndexBounds(insertIdx);
+
 
         var removedKeyLen = offsets[removeIdx + 1] - offsets[removeIdx];
         var newKeys = new byte[keys.length - removedKeyLen + key.length];
@@ -294,21 +294,21 @@ public class PackedByteKeyStorage implements KeyStorage<byte[]> {
                     offsets[removeIdx + 1],
                     newKeys,
                     offsets[removeIdx],
-                    offsets[insertIdx] - offsets[removeIdx + 1]
+                    offsets[insertIdx + 1] - offsets[removeIdx + 1]
             );
             // insert the key
             System.arraycopy(key, 0, newKeys, offsets[insertIdx], key.length);
             // suffix after insert
             System.arraycopy(
                     keys,
-                    offsets[insertIdx],
+                    offsets[insertIdx + 1],
                     newKeys,
                     offsets[insertIdx] + key.length,
-                    keys.length - offsets[insertIdx]
+                    keys.length - offsets[insertIdx + 1]
             );
 
-            for (var i = removeIdx + 1; i <= insertIdx; i++) {
-                newOffsets[i] = offsets[i] - removedKeyLen;
+            for (var i = removeIdx + 1; i <= insertIdx + 1; i++) {
+                newOffsets[i - 1] = offsets[i] - removedKeyLen;
             }
 
             newOffsets[insertIdx + 1] = newOffsets[insertIdx] + key.length;

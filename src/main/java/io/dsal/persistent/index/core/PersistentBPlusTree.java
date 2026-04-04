@@ -295,8 +295,10 @@ public class PersistentBPlusTree<K, V> implements Iterable<KeyVal<K, V>> {
     void range(Node<K, V> node, K from, K to, Consumer<KeyVal<K, V>> consumer) {
         switch (node) {
             case Node.Internal<K, V>(var keys, var children) -> {
-                var start = Search.lowerBound(keys, from).idx();
-                var end = Search.lowerBound(keys, to).idx();
+                var startLb = Search.lowerBound(keys, from);
+                var start = startLb.found() ? startLb.idx() + 1 : startLb.idx();
+                var endLb = Search.lowerBound(keys, to);
+                var end = endLb.found() ? endLb.idx() + 1 : endLb.idx();
                 // Empty range in this subtree when no child index lies in [start, end].
                 for (var idx = start; idx <= end; idx++) {
                     range(children.child(idx), from, to, consumer);
@@ -328,7 +330,10 @@ public class PersistentBPlusTree<K, V> implements Iterable<KeyVal<K, V>> {
      */
     @Override
     public Iterator<KeyVal<K, V>> iterator() {
-        return BTreeIterator.of(root);
+        var node = root;
+        if (node == null)
+            return Collections.emptyIterator();
+        return BTreeIterator.of(node);
     }
 
     /**
@@ -346,7 +351,10 @@ public class PersistentBPlusTree<K, V> implements Iterable<KeyVal<K, V>> {
      * @return bounded iterator over the snapshot at creation time
      */
     public Iterator<KeyVal<K, V>> rangeIterator(K from, K to) {
-        return BoundedBTreeIterator.of(root, from, to);
+        var node = root;
+        if (node == null)
+            return Collections.emptyIterator();
+        return BoundedBTreeIterator.of(node, from, to);
     }
 
     /* ==================== INSERT ==================== */
@@ -426,10 +434,10 @@ public class PersistentBPlusTree<K, V> implements Iterable<KeyVal<K, V>> {
                     ), null);
                 }
                 var keySplit = keys.insertAndSplit(childIdx, minKeys, promotedKey);
-                var childrenSplit = children.insertAndSplit(childIdx, minKeys, left, right);
+                var childrenSplit = children.insertAndSplit(childIdx, minKeys + 1, left, right);
                 yield new PutResult.Split<>(
                         new Node.Internal<>(keySplit.left(), childrenSplit.left()),
-                        new Node.Internal<>(keySplit.right(), childrenSplit.right()),
+                        new Node.Internal<>(keySplit.right().remove(0), childrenSplit.right()),
                         keySplit.promotedKey()
                 );
 

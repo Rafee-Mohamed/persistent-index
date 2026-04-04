@@ -124,9 +124,9 @@ public class ValueStorage<V> {
         System.arraycopy(vals, 0, newVals, 0, unchangedPrefixEnd);
 
         if (insertIdx > removeIdx) {
-            System.arraycopy(vals, removeIdx + 1, newVals, removeIdx, insertIdx - removeIdx - 1);
+            System.arraycopy(vals, removeIdx + 1, newVals, removeIdx, insertIdx - removeIdx);
             newVals[insertIdx] = val;
-            System.arraycopy(vals, insertIdx, newVals, insertIdx + 1, vals.length - insertIdx);
+            System.arraycopy(vals, insertIdx + 1, newVals, insertIdx + 1, vals.length - insertIdx - 1);
         } else { // insert then remove, insertIdx == prefixEnd
             newVals[insertIdx] = val;
             System.arraycopy(vals, insertIdx, newVals, insertIdx + 1, removeIdx - insertIdx);
@@ -211,10 +211,10 @@ public class ValueStorage<V> {
             );
         }
 
-        var leftVals = (V[]) new Object[splitIdx + 1];
+        var leftVals = (V[]) new Object[splitIdx];
         System.arraycopy(vals, 0, leftVals, 0, insertIdx);
         leftVals[insertIdx] = val;
-        System.arraycopy(vals, insertIdx, leftVals, insertIdx + 1, splitIdx - insertIdx);
+        System.arraycopy(vals, insertIdx, leftVals, insertIdx + 1, splitIdx - insertIdx - 1);
 
         var splitIdxAfterInsertion = splitIdx - 1;
         var rightVals = (V[]) new Object[vals.length - splitIdxAfterInsertion];
