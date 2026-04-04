@@ -11,9 +11,10 @@ package io.dsal.persistent.index.core;
  *   Shrink     --&gt;  child too empty; parent may rebalance or merge upward
  * </pre>
  *
+ * <p>See {@link PersistentBPlusTree#remove(Node, Object) PersistentBPlusTree.remove(Node&lt;K,V&gt;, K)}.</p>
+ *
  * @param <K> key type
  * @param <V> value type
- * @see PersistentBPlusTree#remove(Node, K)
  */
 public sealed interface DeleteResult<K, V> {
     /**

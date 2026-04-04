@@ -2,35 +2,35 @@ package io.dsal.persistent.index.iterator;
 
 import io.dsal.persistent.index.core.KeyVal;
 import io.dsal.persistent.index.core.Node;
+import io.dsal.persistent.index.core.PersistentBPlusTree;
 
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 import java.util.NoSuchElementException;
 
+/**
+ * In-order iterator over every {@link KeyVal} in a B+ subtree: leftmost leaf first,
+ * then scan along leaves using an internal-node stack ({@code path}) to find the
+ * next leaf when the current one is exhausted.
+ *
+ * <p><b>Snapshot:</b> {@link #of} is given a fixed root; it does not see later
+ * structural updates to the tree. Used by {@link PersistentBPlusTree#iterator()}.</p>
+ *
+ * @param <K> key type
+ * @param <V> value type
+ * @see PersistentBPlusTree#iterator()
+ */
 public class BTreeIterator<K, V> implements Iterator<KeyVal<K, V>> {
 
+    /** Ancestors from root toward {@link #currentLeaf}; each {@link Frame} tracks the next sibling. */
     private final List<Frame<K, V>> path;
+
+    /** Leaf whose keys are being emitted. */
     private Node.Leaf<K, V> currentLeaf;
+
+    /** Index of the next key in the current leaf ({@link Node.Leaf#keys()}). */
     private int currentIdx;
-
-    private static class Frame<K, V> {
-        final Node.Internal<K, V> node;
-        int idx;
-
-        private Frame(Node.Internal<K, V> node) {
-            this.node = node;
-            this.idx = 0;
-        }
-
-        Node<K, V> next() {
-            if (idx >= node.children().size()) {
-                return null;
-            }
-
-            return node.children().child(idx++);
-        }
-    }
 
     private BTreeIterator(List<Frame<K, V>> path, Node.Leaf<K, V> leaf) {
         this.path = path;
@@ -39,6 +39,15 @@ public class BTreeIterator<K, V> implements Iterator<KeyVal<K, V>> {
     }
 
 
+    /**
+     * Positions at the smallest key in {@code node} by descending the left spine to
+     * the first leaf.
+     *
+     * @param <K> key type
+     * @param <V> value type
+     * @param node subtree root (typically {@link PersistentBPlusTree}'s root; must not be {@code null})
+     * @return iterator over that subtree in ascending key order
+     */
     public static <K, V> BTreeIterator<K, V> of(Node<K, V> node) {
         var path = new ArrayList<Frame<K, V>>();
         while (node instanceof Node.Internal<K,V> next) {
@@ -90,6 +99,10 @@ public class BTreeIterator<K, V> implements Iterator<KeyVal<K, V>> {
         return true;
     }
 
+    /**
+     * @return next key–value pair in ascending order
+     * @throws NoSuchElementException if there is no next element
+     */
     @Override
     public KeyVal<K, V> next() {
         if (!hasNext()) {

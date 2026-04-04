@@ -12,9 +12,10 @@ package io.dsal.persistent.index.core;
  *   Split     --&gt;  left + right {@link Node}s + {@code promotedKey} for the parent
  * </pre>
  *
+ * <p>See {@link PersistentBPlusTree#put(Node, Object, Object) PersistentBPlusTree.put(Node&lt;K,V&gt;, K, V)}.</p>
+ *
  * @param <K> key type
  * @param <V> value type
- * @see PersistentBPlusTree#put(Node, K, V)
  */
 public sealed interface PutResult<K, V> {
 

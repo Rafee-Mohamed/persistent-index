@@ -57,7 +57,8 @@ import java.util.function.Consumer;
  *
  * <p>Internal keys are separators: values exist only in leaves. Descent uses
  * {@link Search#lowerBound}; if the search hits a separator exactly, the next
- * child index is one past that key (see {@link #get(Node, K)}).</p>
+ * child index is one past that key (see {@link #get(Node, Object)}; source
+ * {@code get(Node<K,V>, K)}).</p>
  *
  * <h2>Invariants</h2>
  *
@@ -225,7 +226,8 @@ public class PersistentBPlusTree<K, V> implements Iterable<KeyVal<K, V>> {
     }
 
     /**
-     * Same semantics as {@link #range(K, K)} but fills {@code out}.
+     * Same semantics as {@link #range(Object, Object)} but fills {@code out}
+     * (source {@code range(K from, K to)}).
      *
      * <p><b>Snapshot:</b> {@link #root} is captured once at entry; elements added
      * to {@code out} come from that version only.</p>
@@ -397,7 +399,7 @@ public class PersistentBPlusTree<K, V> implements Iterable<KeyVal<K, V>> {
 
     /**
      * Descends to the child chosen by {@link Search#lowerBound}, applies the child
-     * {@link #put(Node, K, V)} result, then either replaces one child,
+     * {@link #put(Node, Object, Object)} result ({@code put(Node<K,V>, K, V)}), then either replaces one child,
      * absorbs a split into this node, or splits this internal node.
      *
      * @param keys     separator keys of this internal node
@@ -480,7 +482,8 @@ public class PersistentBPlusTree<K, V> implements Iterable<KeyVal<K, V>> {
      * Removes {@code key} and returns the value previously stored, or {@code null}
      * if the key was absent.
      *
-     * <p>Loads {@link #root} once, runs {@link #remove(Node, K)}, then
+     * <p>Loads {@link #root} once, runs {@link #remove(Node, Object)}
+     * ({@code remove(Node<K,V>, K)}), then
      * publishes a new root according to {@link DeleteResult}. {@code NotFound}
      * leaves {@code root} unchanged.</p>
      *

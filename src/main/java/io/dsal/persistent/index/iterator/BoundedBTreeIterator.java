@@ -2,6 +2,7 @@ package io.dsal.persistent.index.iterator;
 
 import io.dsal.persistent.index.core.KeyVal;
 import io.dsal.persistent.index.core.Node;
+import io.dsal.persistent.index.core.PersistentBPlusTree;
 import io.dsal.persistent.index.util.Search;
 
 import java.util.ArrayList;
@@ -9,31 +10,38 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.NoSuchElementException;
 
+/**
+ * Iterator over keys in {@code [from, to]} inclusive (ascending), using
+ * {@link Search#lowerBound(io.dsal.persistent.index.layout.IndexedComparator, Object)}
+ * on each internal node's keys to descend toward {@code from} and
+ * to bound each leaf. When a leaf is exhausted, advances to the next leaf that can
+ * still contain keys {@code <= to}.
+ *
+ * <p><b>Snapshot:</b> Uses the root passed to {@link #of} only; does not observe later
+ * mutations. Same empty cases as {@link PersistentBPlusTree#rangeIterator(Object, Object)}
+ * (erasure of {@code range(K, K)}):
+ * no keys in the interval, or {@code from} after {@code to} in key order.</p>
+ *
+ * @param <K> key type
+ * @param <V> value type
+ * @see PersistentBPlusTree#rangeIterator(Object, Object)
+ */
 public class BoundedBTreeIterator<K, V> implements Iterator<KeyVal<K, V>> {
 
+    /** Ancestors from root toward {@link #currentLeaf}; each {@link Frame} tracks the next sibling. */
     private final List<Frame<K, V>> path;
+
+    /** Leaf currently being scanned. */
     private Node.Leaf<K, V> currentLeaf;
+
+    /** Next index in this leaf (inclusive lower of the range on this leaf). */
     private int currentIdx;
+
+    /** Last index in this leaf that is still {@code <= to} (inclusive). */
     private int endIdx;
+
+    /** Inclusive upper bound; recomputed when moving to the next leaf. */
     private final K to;
-
-    private static class Frame<K, V> {
-        final Node.Internal<K, V> node;
-        int idx;
-
-        private Frame(Node.Internal<K, V> node, int idx) {
-            this.node = node;
-            this.idx = idx;
-        }
-
-        Node<K, V> next() {
-            if (idx >= node.children().size()) {
-                return null;
-            }
-
-            return node.children().child(idx++);
-        }
-    }
 
     private BoundedBTreeIterator(List<Frame<K, V>> path, Node.Leaf<K, V> leaf, int leafStart, int leafEnd, K to) {
         this.path = path;
@@ -44,6 +52,17 @@ public class BoundedBTreeIterator<K, V> implements Iterator<KeyVal<K, V>> {
     }
 
 
+    /**
+     * Starts at the first key {@code >= from} in {@code node}'s subtree (if any), and
+     * stops before keys {@code > to}.
+     *
+     * @param <K> key type
+     * @param <V> value type
+     * @param node subtree root (typically {@link PersistentBPlusTree}'s root; must not be {@code null})
+     * @param from inclusive lower bound
+     * @param to   inclusive upper bound
+     * @return iterator; may yield no elements if the range is empty
+     */
     public static <K, V> BoundedBTreeIterator<K, V> of(Node<K, V> node, K from, K to) {
         var path = new ArrayList<Frame<K, V>>();
         while (node instanceof Node.Internal<K,V> next) {
@@ -111,6 +130,10 @@ public class BoundedBTreeIterator<K, V> implements Iterator<KeyVal<K, V>> {
         return true;
     }
 
+    /**
+     * @return next key–value pair in {@code [from, to]}
+     * @throws NoSuchElementException if there is no next element
+     */
     @Override
     public KeyVal<K, V> next() {
         if (!hasNext()) {

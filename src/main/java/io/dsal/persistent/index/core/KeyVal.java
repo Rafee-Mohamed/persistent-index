@@ -5,12 +5,13 @@ package io.dsal.persistent.index.core;
  * one entry in key order ({@link #key()} at index {@code i} pairs with {@link #val()}
  * in the same leaf).
  *
+ * <p>Bounded scan: {@link PersistentBPlusTree#range(Object, Object) PersistentBPlusTree.range(K, K)}.</p>
+ *
  * @param key key
  * @param val associated value
  * @param <K> key type
  * @param <V> value type
  * @see PersistentBPlusTree#iterator()
- * @see PersistentBPlusTree#range(K, K)
  */
 public record KeyVal<K, V>(K key, V val) {
     /**
