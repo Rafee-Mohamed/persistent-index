@@ -4,13 +4,16 @@ import java.util.Arrays;
 import java.util.Comparator;
 
 /**
- * {@link KeyStorage} backed by a reference array. Each mutating operation returns
+ * {@link KeyStorage} backed by a reference array. Each mutating operation
+ * returns
  * a new instance with a copied array (copy-on-write). {@link #compare(int, K)}
  * delegates to the {@link Comparator} on {@link #key(int)}.
  *
- * <p>{@link #merge(KeyStorage)} and {@link #insertAndMerge(int, K, KeyStorage)}
+ * <p>
+ * {@link #merge(KeyStorage)} and {@link #insertAndMerge(int, K, KeyStorage)}
  * require the other storage to be {@code ArrayKeyStorage} with a compatible
- * comparator (same ordering).</p>
+ * comparator (same ordering).
+ * </p>
  *
  * @param <K> key type
  * @see ArrayKeyStorageFactory
@@ -20,18 +23,18 @@ public class ArrayKeyStorage<K> implements KeyStorage<K> {
     private final Comparator<K> comparator;
 
     /**
-     * @param keys        sorted key sequence; not copied defensively; callers must
-     *                    not mutate after construction
-     * @param comparator  ordering for {@link #compare(int, K)}; must match
-     *                    key order in {@code keys}
+     * @param keys       sorted key sequence; not copied defensively; callers must
+     *                   not mutate after construction
+     * @param comparator ordering for {@link #compare(int, K)}; must match
+     *                   key order in {@code keys}
      */
     public ArrayKeyStorage(K[] keys, Comparator<K> comparator) {
         this.keys = keys;
         this.comparator = comparator;
     }
-    
+
     static <K> ArrayKeyStorage<K> of(K key, Comparator<K> comparator) {
-        return new ArrayKeyStorage<>((K[]) new Object[]{key}, comparator);
+        return new ArrayKeyStorage<>((K[]) new Object[] { key }, comparator);
     }
 
     @Override
@@ -84,6 +87,19 @@ public class ArrayKeyStorage<K> implements KeyStorage<K> {
         return new ArrayKeyStorage<>(newKeys, comparator);
     }
 
+    public KeyStorage<K> copy(int from, int to) {
+        if (from > to) {
+            throw new IllegalArgumentException("Invalid range for copy [from, to]: [" + from + ", " + to + "]");
+        }
+        checkIndexBounds(from);
+        checkIndexBounds(to - 1);
+
+        var newKeys = (K[]) new Object[to - from];
+        System.arraycopy(keys, from, newKeys, 0, newKeys.length);
+
+        return new ArrayKeyStorage<>(newKeys, comparator);
+    }
+
     @Override
     public KeySplit<K> split(int idx) {
         checkSplitBounds(idx);
@@ -92,7 +108,7 @@ public class ArrayKeyStorage<K> implements KeyStorage<K> {
 
         var rightKeys = (K[]) new Object[keys.length - idx];
         System.arraycopy(keys, idx, rightKeys, 0, rightKeys.length);
-        
+
         var leftKeyStorage = new ArrayKeyStorage<>(leftKeys, comparator);
         var rightKeyStorage = new ArrayKeyStorage<>(rightKeys, comparator);
         return new KeySplit<>(leftKeyStorage, rightKeyStorage, rightKeyStorage.key(0));
@@ -141,8 +157,8 @@ public class ArrayKeyStorage<K> implements KeyStorage<K> {
             rightKeys[prefixLen] = key;
             System.arraycopy(keys, insertIdx, rightKeys, prefixLen + 1, suffixLen);
 
-            var leftKeyStorage = new  ArrayKeyStorage<>(leftKeys, comparator);
-            var rightKeyStorage = new  ArrayKeyStorage<>(rightKeys, comparator);
+            var leftKeyStorage = new ArrayKeyStorage<>(leftKeys, comparator);
+            var rightKeyStorage = new ArrayKeyStorage<>(rightKeys, comparator);
             return new KeySplit<>(leftKeyStorage, rightKeyStorage, rightKeyStorage.key(0));
         }
 
@@ -155,15 +171,18 @@ public class ArrayKeyStorage<K> implements KeyStorage<K> {
         var rightKeys = (K[]) new Object[keys.length - splitIdxAfterInsertion];
         System.arraycopy(keys, splitIdxAfterInsertion, rightKeys, 0, rightKeys.length);
 
-        var leftKeyStorage = new  ArrayKeyStorage<>(leftKeys, comparator);
-        var rightKeyStorage = new  ArrayKeyStorage<>(rightKeys, comparator);
+        var leftKeyStorage = new ArrayKeyStorage<>(leftKeys, comparator);
+        var rightKeyStorage = new ArrayKeyStorage<>(rightKeys, comparator);
         return new KeySplit<>(leftKeyStorage, rightKeyStorage, rightKeyStorage.key(0));
     }
 
     @Override
     public KeySplit<K> insertAndSplitAround(int insertIdx, int splitIdx, K key) {
         if (insertIdx == splitIdx) {
-            return splitAround(insertIdx);
+            return new KeySplit<>(
+                    copy(0, splitIdx),
+                    copy(splitIdx, keys.length),
+                    key);
         }
 
         if (insertIdx > splitIdx) {
@@ -178,8 +197,8 @@ public class ArrayKeyStorage<K> implements KeyStorage<K> {
             rightKeys[prefixLen] = key;
             System.arraycopy(keys, insertIdx, rightKeys, prefixLen + 1, suffixLen);
 
-            var leftKeyStorage = new  ArrayKeyStorage<>(leftKeys, comparator);
-            var rightKeyStorage = new  ArrayKeyStorage<>(rightKeys, comparator);
+            var leftKeyStorage = new ArrayKeyStorage<>(leftKeys, comparator);
+            var rightKeyStorage = new ArrayKeyStorage<>(rightKeys, comparator);
             return new KeySplit<>(leftKeyStorage, rightKeyStorage, keys[splitIdx]);
         }
 
@@ -191,8 +210,8 @@ public class ArrayKeyStorage<K> implements KeyStorage<K> {
         var rightKeys = (K[]) new Object[keys.length - splitIdx];
         System.arraycopy(keys, splitIdx, rightKeys, 0, rightKeys.length);
 
-        var leftKeyStorage = new  ArrayKeyStorage<>(leftKeys, comparator);
-        var rightKeyStorage = new  ArrayKeyStorage<>(rightKeys, comparator);
+        var leftKeyStorage = new ArrayKeyStorage<>(leftKeys, comparator);
+        var rightKeyStorage = new ArrayKeyStorage<>(rightKeys, comparator);
         return new KeySplit<>(leftKeyStorage, rightKeyStorage, keys[splitIdx - 1]);
     }
 
@@ -217,7 +236,7 @@ public class ArrayKeyStorage<K> implements KeyStorage<K> {
             System.arraycopy(keys, removeIdx + 1, newKeys, removeIdx, keys.length - removeIdx - 1);
         }
 
-        return new  ArrayKeyStorage<>(newKeys, comparator);
+        return new ArrayKeyStorage<>(newKeys, comparator);
     }
 
     @Override
@@ -237,18 +256,20 @@ public class ArrayKeyStorage<K> implements KeyStorage<K> {
 
         System.arraycopy(otherKeys, 0, newKeys, keys.length + 1, otherKeys.length);
 
-        return new  ArrayKeyStorage<>(newKeys, comparator);
+        return new ArrayKeyStorage<>(newKeys, comparator);
     }
 
     private void checkSplitBounds(int idx) {
         if (idx <= 0 || idx > size()) {
-            throw new IndexOutOfBoundsException("Index " + idx + " is out of bounds for split: " + "(" + 0 + " " + size() + ")");
+            throw new IndexOutOfBoundsException(
+                    "Index " + idx + " is out of bounds for split: " + "(" + 0 + " " + size() + ")");
         }
     }
 
     private void checkInsertBounds(int idx) {
         if (idx < 0 || idx > size()) {
-            throw new IndexOutOfBoundsException("Index " + idx + " is out of bounds for insert: " + "[" + 0 + " " + size() + ")");
+            throw new IndexOutOfBoundsException(
+                    "Index " + idx + " is out of bounds for insert: " + "[" + 0 + " " + size() + ")");
         }
     }
 
@@ -257,5 +278,5 @@ public class ArrayKeyStorage<K> implements KeyStorage<K> {
             throw new IndexOutOfBoundsException("Index " + idx + " is out of bounds: " + "[" + 0 + " " + size() + ")");
         }
     }
-    
+
 }

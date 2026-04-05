@@ -341,7 +341,7 @@ public class Children<K, V> {
     }
 
     private void checkInsertBounds(int idx) {
-        if (idx < 0 || idx >= nodes.length) {
+        if (idx < 0 || idx > nodes.length) {
             throw new IndexOutOfBoundsException("Index " + idx + " is out of bounds for insert: " + "[" + 0 + " " + nodes.length + ")");
         }
     }

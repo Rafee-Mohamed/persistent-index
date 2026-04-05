@@ -5,13 +5,18 @@ import java.util.Arrays;
 /**
  * {@link KeyStorage} for variable-length {@code byte[]} keys stored in one
  * contiguous {@code byte[]} plus an offset table: key {@code i} occupies
- * {@code keys[offsets[i]) .. keys[offsets[i+1])}. Mutations allocate new backing
+ * {@code keys[offsets[i]) .. keys[offsets[i+1])}. Mutations allocate new
+ * backing
  * arrays. {@link #key(int)} returns a copy of that range.
  *
- * <p>{@link #compare(int, byte[])} forwards slices to {@link PackedByteComparator}.
- * {@link #merge(KeyStorage)} and {@link #insertAndMerge(int, byte[], KeyStorage)}
+ * <p>
+ * {@link #compare(int, byte[])} forwards slices to
+ * {@link PackedByteComparator}.
+ * {@link #merge(KeyStorage)} and
+ * {@link #insertAndMerge(int, byte[], KeyStorage)}
  * require the other storage to be {@code PackedByteKeyStorage} with the same
- * comparator semantics.</p>
+ * comparator semantics.
+ * </p>
  *
  * @see PackedByteKeyStorageFactory
  */
@@ -36,10 +41,9 @@ public class PackedByteKeyStorage implements KeyStorage<byte[]> {
     }
 
     static PackedByteKeyStorage of(byte[] key, PackedByteComparator comparator) {
-        var offsets = new int[]{0, key.length};
+        var offsets = new int[] { 0, key.length };
         return new PackedByteKeyStorage(Arrays.copyOf(key, key.length), offsets, comparator);
     }
-
 
     @Override
     public int size() {
@@ -85,11 +89,11 @@ public class PackedByteKeyStorage implements KeyStorage<byte[]> {
         checkIndexBounds(idx);
         var removedKeyLen = offsets[idx + 1] - offsets[idx];
         var newKeys = new byte[keys.length - removedKeyLen];
-        System.arraycopy(keys, 0, newKeys, 0,  offsets[idx]);
+        System.arraycopy(keys, 0, newKeys, 0, offsets[idx]);
         System.arraycopy(keys, offsets[idx + 1], newKeys, offsets[idx], keys.length - offsets[idx + 1]);
 
         var newOffsets = new int[offsets.length - 1];
-        System.arraycopy(offsets, 0, newOffsets, 0,  idx + 1);
+        System.arraycopy(offsets, 0, newOffsets, 0, idx + 1);
 
         for (var i = idx + 1; i < newOffsets.length; i++) {
             newOffsets[i] = offsets[i + 1] - removedKeyLen;
@@ -101,7 +105,7 @@ public class PackedByteKeyStorage implements KeyStorage<byte[]> {
     @Override
     public KeyStorage<byte[]> replace(int idx, byte[] key) {
 
-        var replacedKeyLen =  offsets[idx + 1] - offsets[idx];
+        var replacedKeyLen = offsets[idx + 1] - offsets[idx];
         var newKeys = new byte[keys.length - replacedKeyLen + key.length];
 
         System.arraycopy(keys, 0, newKeys, 0, offsets[idx]);
@@ -111,8 +115,7 @@ public class PackedByteKeyStorage implements KeyStorage<byte[]> {
                 offsets[idx + 1],
                 newKeys,
                 offsets[idx] + key.length,
-                keys.length - offsets[idx + 1]
-        );
+                keys.length - offsets[idx + 1]);
 
         var newOffsets = new int[offsets.length];
 
@@ -141,13 +144,33 @@ public class PackedByteKeyStorage implements KeyStorage<byte[]> {
         System.arraycopy(keys, offsets[idx], rightKeys, 0, rightKeys.length);
 
         for (var i = idx; i < offsets.length; i++) {
-            rightOffsets[i - idx] = offsets[i] -  offsets[idx];
+            rightOffsets[i - idx] = offsets[i] - offsets[idx];
         }
 
         var leftKeyStorage = new PackedByteKeyStorage(leftKeys, leftOffsets, comparator);
         var rightKeyStorage = new PackedByteKeyStorage(rightKeys, rightOffsets, comparator);
 
         return new KeySplit<>(leftKeyStorage, rightKeyStorage, rightKeyStorage.key(0));
+    }
+
+    public KeyStorage<byte[]> copy(int from, int to) {
+        if (from > to) {
+            throw new IllegalArgumentException("Invalid range for copy [from, to]: [" + from + ", " + to + "]");
+        }
+
+        checkIndexBounds(from);
+        checkIndexBounds(to - 1);
+
+        var newKeys = new byte[offsets[to] - offsets[from]];
+        var newOffsets = new int[to - from + 1];
+
+        System.arraycopy(keys, offsets[from], newKeys, 0, newKeys.length);
+
+        for (var i = from; i <= to; i++) {
+            newOffsets[i - from] = offsets[i] - offsets[from];
+        }
+
+        return new PackedByteKeyStorage(newKeys, newOffsets, comparator);
     }
 
     @Override
@@ -165,7 +188,7 @@ public class PackedByteKeyStorage implements KeyStorage<byte[]> {
         System.arraycopy(keys, offsets[idx + 1], rightKeys, 0, rightKeys.length);
 
         for (var i = idx + 1; i < offsets.length; i++) {
-            rightOffsets[i - idx - 1] = offsets[i] -  offsets[idx + 1];
+            rightOffsets[i - idx - 1] = offsets[i] - offsets[idx + 1];
         }
 
         var leftKeyStorage = new PackedByteKeyStorage(leftKeys, leftOffsets, comparator);
@@ -203,7 +226,7 @@ public class PackedByteKeyStorage implements KeyStorage<byte[]> {
         checkSplitBounds(splitIdx);
 
         // ['a', 'b', 'c', 'e']
-        // [0,  1,  2,  3,  4]
+        // [0, 1, 2, 3, 4]
         // key = 'd'
         // insertIdx = 3
         // splitIdx = 2
@@ -220,7 +243,8 @@ public class PackedByteKeyStorage implements KeyStorage<byte[]> {
             var rightKeys = new byte[keys.length - offsets[splitIdx] + key.length];
 
             // prefix, newKey, suffix
-            // offsets -> [splitIdx, insertIdx) [insertIdx, insertIdx + key.length) [insertIdx + key.length, keys.length + key.length)
+            // offsets -> [splitIdx, insertIdx) [insertIdx, insertIdx + key.length)
+            // [insertIdx + key.length, keys.length + key.length)
 
             var prefixStart = offsets[splitIdx];
             var newKeyStart = offsets[insertIdx];
@@ -230,7 +254,7 @@ public class PackedByteKeyStorage implements KeyStorage<byte[]> {
 
             System.arraycopy(keys, prefixStart, rightKeys, 0, prefixLen);
             System.arraycopy(key, 0, rightKeys, prefixLen, key.length);
-            System.arraycopy(keys, newKeyStart, rightKeys,  suffixStart, suffixLen);
+            System.arraycopy(keys, newKeyStart, rightKeys, suffixStart, suffixLen);
 
             var rightOffsets = new int[offsets.length - splitIdx + 1];
 
@@ -261,7 +285,7 @@ public class PackedByteKeyStorage implements KeyStorage<byte[]> {
 
         System.arraycopy(keys, prefixStart, leftKeys, 0, prefixLen);
         System.arraycopy(key, 0, leftKeys, prefixLen, key.length);
-        System.arraycopy(keys, prefixLen, leftKeys,  suffixStart, suffixLen);
+        System.arraycopy(keys, prefixLen, leftKeys, suffixStart, suffixLen);
 
         var leftOffsets = new int[splitIdx + 1];
 
@@ -298,7 +322,10 @@ public class PackedByteKeyStorage implements KeyStorage<byte[]> {
     @Override
     public KeySplit<byte[]> insertAndSplitAround(int insertIdx, int splitIdx, byte[] key) {
         if (insertIdx == splitIdx) {
-            return splitAround(insertIdx);
+            return new KeySplit<>(
+                    copy(0, splitIdx),
+                    copy(splitIdx, size()),
+                    key);
         }
 
         checkInsertBounds(insertIdx);
@@ -316,7 +343,8 @@ public class PackedByteKeyStorage implements KeyStorage<byte[]> {
             var rightKeys = new byte[keys.length - offsets[splitIdx + 1] + key.length];
 
             // prefix, newKey, suffix
-            // offsets -> [splitIdx, insertIdx) [insertIdx, insertIdx + key.length) [insertIdx + key.length, keys.length + key.length)
+            // offsets -> [splitIdx, insertIdx) [insertIdx, insertIdx + key.length)
+            // [insertIdx + key.length, keys.length + key.length)
 
             var prefixStart = offsets[splitIdx + 1];
             var newKeyStart = offsets[insertIdx];
@@ -326,7 +354,7 @@ public class PackedByteKeyStorage implements KeyStorage<byte[]> {
 
             System.arraycopy(keys, prefixStart, rightKeys, 0, prefixLen);
             System.arraycopy(key, 0, rightKeys, prefixLen, key.length);
-            System.arraycopy(keys, newKeyStart, rightKeys,  suffixStart, suffixLen);
+            System.arraycopy(keys, newKeyStart, rightKeys, suffixStart, suffixLen);
 
             var rightOffsets = new int[offsets.length - splitIdx];
 
@@ -356,7 +384,7 @@ public class PackedByteKeyStorage implements KeyStorage<byte[]> {
 
         System.arraycopy(keys, 0, leftKeys, 0, prefixLen);
         System.arraycopy(key, 0, leftKeys, prefixLen, key.length);
-        System.arraycopy(keys, prefixLen, leftKeys,  suffixStart, suffixLen);
+        System.arraycopy(keys, prefixLen, leftKeys, suffixStart, suffixLen);
 
         var leftOffsets = new int[splitIdx + 1];
 
@@ -391,7 +419,6 @@ public class PackedByteKeyStorage implements KeyStorage<byte[]> {
         checkIndexBounds(removeIdx);
         checkIndexBounds(insertIdx);
 
-
         var removedKeyLen = offsets[removeIdx + 1] - offsets[removeIdx];
         var newKeys = new byte[keys.length - removedKeyLen + key.length];
         var newOffsets = new int[offsets.length];
@@ -409,8 +436,7 @@ public class PackedByteKeyStorage implements KeyStorage<byte[]> {
                     offsets[removeIdx + 1],
                     newKeys,
                     offsets[removeIdx],
-                    offsets[insertIdx + 1] - offsets[removeIdx + 1]
-            );
+                    offsets[insertIdx + 1] - offsets[removeIdx + 1]);
             // insert the key
             System.arraycopy(key, 0, newKeys, offsets[insertIdx], key.length);
             // suffix after insert
@@ -419,8 +445,7 @@ public class PackedByteKeyStorage implements KeyStorage<byte[]> {
                     offsets[insertIdx + 1],
                     newKeys,
                     offsets[insertIdx] + key.length,
-                    keys.length - offsets[insertIdx + 1]
-            );
+                    keys.length - offsets[insertIdx + 1]);
 
             for (var i = removeIdx + 1; i <= insertIdx + 1; i++) {
                 newOffsets[i - 1] = offsets[i] - removedKeyLen;
@@ -439,17 +464,14 @@ public class PackedByteKeyStorage implements KeyStorage<byte[]> {
                     offsets[insertIdx],
                     newKeys,
                     offsets[insertIdx] + key.length,
-                    offsets[removeIdx] - offsets[insertIdx]
-            );
+                    offsets[removeIdx] - offsets[insertIdx]);
             // suffix after remove
             System.arraycopy(
                     keys,
                     offsets[removeIdx + 1],
                     newKeys,
                     offsets[removeIdx] + key.length,
-                    keys.length - offsets[removeIdx + 1]
-            );
-
+                    keys.length - offsets[removeIdx + 1]);
 
             newOffsets[insertIdx + 1] = newOffsets[insertIdx] + key.length;
 
@@ -489,8 +511,7 @@ public class PackedByteKeyStorage implements KeyStorage<byte[]> {
                     offsets[insertIdx],
                     newKeys,
                     offsets[insertIdx] + key.length,
-                    keys.length - offsets[insertIdx]
-            );
+                    keys.length - offsets[insertIdx]);
         }
 
         System.arraycopy(otherKeys, 0, newKeys, keys.length + key.length, otherKeys.length);
@@ -509,7 +530,6 @@ public class PackedByteKeyStorage implements KeyStorage<byte[]> {
             }
         }
 
-
         for (var i = 1; i < otherOffsets.length; i++) {
             newOffsets[offsets.length + i] = newOffsets[offsets.length] + otherOffsets[i];
         }
@@ -519,13 +539,15 @@ public class PackedByteKeyStorage implements KeyStorage<byte[]> {
 
     private void checkSplitBounds(int idx) {
         if (idx <= 0 || idx > size()) {
-            throw new IndexOutOfBoundsException("Index " + idx + " is out of bounds for split: " + "(" + 0 + " " + size() + ")");
+            throw new IndexOutOfBoundsException(
+                    "Index " + idx + " is out of bounds for split: " + "(" + 0 + " " + size() + ")");
         }
     }
 
     private void checkInsertBounds(int idx) {
         if (idx < 0 || idx > size()) {
-            throw new IndexOutOfBoundsException("Index " + idx + " is out of bounds for insert: " + "[" + 0 + " " + size() + ")");
+            throw new IndexOutOfBoundsException(
+                    "Index " + idx + " is out of bounds for insert: " + "[" + 0 + " " + size() + ")");
         }
     }
 

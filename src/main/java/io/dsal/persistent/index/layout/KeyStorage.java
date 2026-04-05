@@ -76,7 +76,7 @@ public interface KeyStorage<K> extends IndexedComparator<K> {
      * @param idx index in {@code [0, size())}
      * @return key at {@code idx}
      * @throws IndexOutOfBoundsException if {@code idx} is out of range
-     *         (implementation-defined exact type)
+     *                                   (implementation-defined exact type)
      */
     K key(int idx);
 
@@ -209,7 +209,7 @@ public interface KeyStorage<K> extends IndexedComparator<K> {
      * @param other keys to append after this storage's keys
      * @return merged storage
      * @throws IllegalArgumentException if implementations reject incompatible
-     *         storage types (optional)
+     *                                  storage types (optional)
      */
     KeyStorage<K> merge(KeyStorage<K> other);
 
@@ -232,10 +232,10 @@ public interface KeyStorage<K> extends IndexedComparator<K> {
      *   Equivalent to:  insert(insertIdx, key).split(splitIdx)
      * </pre>
      *
-     * @param insertIdx   index at which to insert {@code key} in the pre-insert
-     *                    sequence
-     * @param splitIdx    split index in the post-insert sequence
-     * @param key         key to insert
+     * @param insertIdx index at which to insert {@code key} in the pre-insert
+     *                  sequence
+     * @param splitIdx  split index in the post-insert sequence
+     * @param key       key to insert
      * @return split result after insert
      */
     default KeySplit<K> insertAndSplit(int insertIdx, int splitIdx, K key) {
@@ -245,16 +245,12 @@ public interface KeyStorage<K> extends IndexedComparator<K> {
     /**
      * Fused {@link #insert(int, Object)} then {@link #splitAround(int)}: inserts
      * {@code key} at {@code insertIdx}, then splits around {@code splitIdx} on the
-     * post-insert sequence, except when {@code insertIdx == splitIdx} (then
-     * {@link #splitAround(int)} runs on the pre-insert sequence and {@code key} is
-     * not inserted).
+     * post-insert sequence.
      *
-     * <p>When {@code insertIdx != splitIdx}, equivalent to
-     * {@code insert(insertIdx, key).splitAround(splitIdx)}; when equal, equivalent to
-     * {@code splitAround(insertIdx)}. {@link KeySplit#promotedKey()} follows
-     * {@link #splitAround(int)} (the key at the split-around index in the sequence
-     * the split is applied to). Default implementations follow that shape; optimized
-     * implementations may fuse work but must match the same observable result.</p>
+     * <p>Semantically equivalent to {@code insert(insertIdx, key).splitAround(splitIdx)}.
+     * The split-around index applies to the storage <em>after</em> insertion. Default
+     * implementations follow that order; optimized implementations may fuse work but must
+     * match the same observable result.</p>
      *
      * <pre>
      *   Before insert:  [ 10 | 20 | 30 | 40 ]     size 4, indices 0 .. 3
@@ -262,18 +258,16 @@ public interface KeyStorage<K> extends IndexedComparator<K> {
      *   splitAround(3)  --&gt;  per {@link #splitAround(int)} on that row
      *
      *   Equivalent to:  insert(insertIdx, key).splitAround(splitIdx)
-     *                    or splitAround(insertIdx) when insertIdx == splitIdx
      * </pre>
      *
-     * @param insertIdx index at which to insert {@code key} in the pre-insert sequence
-     * @param splitIdx  split-around index (post-insert row, or pre-insert when equal)
+     * @param insertIdx index at which to insert {@code key} in the pre-insert
+     *                  sequence
+     * @param splitIdx  split-around index in the post-insert sequence
      * @param key       key to insert
      * @return split result after insert and split-around
      */
     default KeySplit<K> insertAndSplitAround(int insertIdx, int splitIdx, K key) {
-        return insertIdx == splitIdx
-                ? splitAround(insertIdx)
-                : insert(insertIdx, key).splitAround(splitIdx);
+        return insert(insertIdx, key).splitAround(splitIdx);
     }
 
     /**
