@@ -4,7 +4,6 @@ A persistent, ordered index built on a copy-on-write B+ tree, designed for singl
 
 > **On the name:** "Persistent" is used in the immutable data structures sense - each write produces a new version while prior versions remain valid. This is not a disk-backed store.
 
----
 
 ## Overview
 
@@ -12,8 +11,6 @@ A persistent, ordered index built on a copy-on-write B+ tree, designed for singl
 
 The index supports point lookup, inclusive range reads, ordered iteration, insert with replace semantics, and delete with value-return semantics. Structural invariants are preserved throughout all write operations.
 
-
----
 
 ## Architecture
 
@@ -43,7 +40,6 @@ Tree logic is decoupled from key representation through the `KeyStorage` interfa
 
 New storage representations - such as prefix-compressed keys - require only a new `KeyStorage` implementation. The tree algorithms are unaffected.
 
----
 
 ## Testing
 
@@ -53,7 +49,6 @@ The implementation is validated through three tiers:
 - **Seeded deterministic stress tests** - 20,000 operations against the tree and oracle in parallel, with periodic full iteration and structural checks. Fixed seed makes failures fully reproducible.
 - **Structural invariant validation** - after operations, the tree is walked to assert key ordering, separator alignment, uniform leaf depth, and fill bounds on every node.
 
----
 
 ## Usage
 
@@ -148,8 +143,6 @@ index.put("/api/orders".getBytes(StandardCharsets.UTF_8), new ServiceRoute("orde
 index.put("/api/search".getBytes(StandardCharsets.UTF_8), new ServiceRoute("search-service", 8082));
 ```
 
----
-
 ## Roadmap
 
 - **Performance benchmarking** - JMH benchmarks against `TreeMap` with read-write locks and `ConcurrentSkipListMap` under SWMR workloads
@@ -158,7 +151,6 @@ index.put("/api/search".getBytes(StandardCharsets.UTF_8), new ServiceRoute("sear
 - **Batched writes** - accumulate multiple mutations into a single path-copying pass, reducing redundant copies and providing atomic all-or-none visibility for readers
 - **Prefix-compressed key storage** - a third `KeyStorage` implementation for byte-key workloads with common prefixes, reducing memory and comparison cost
 
----
 
 ## Background
 
@@ -166,7 +158,6 @@ index.put("/api/search".getBytes(StandardCharsets.UTF_8), new ServiceRoute("sear
 
 Axis maintains an inverted index of user keys to internal revisions to serve point and range queries. Raft serializes writes via a single leader, enforcing total order and making the system inherently SWMR. Readers need stable snapshots to answer queries consistently against an established state, without being affected by concurrent writes. Rather than reaching for read-write locks, this index was built to match the workload directly: a copy-on-write structure where readers hold lock-free snapshots and the writer publishes atomically. It was later extracted from Axis for independent development and use.
 
----
 
 ## Requirements
 
