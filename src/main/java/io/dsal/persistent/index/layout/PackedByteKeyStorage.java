@@ -276,12 +276,12 @@ public class PackedByteKeyStorage implements KeyStorage<byte[]> {
             return new KeySplit<>(leftKeyStorage, rightKeyStorage, rightKeyStorage.key(0));
         }
 
-        var leftKeys = new byte[offsets[splitIdx] + key.length];
+        var leftKeys = new byte[offsets[splitIdx - 1] + key.length];
 
         var prefixStart = 0;
         var prefixLen = offsets[insertIdx];
         var suffixStart = prefixLen + key.length;
-        var suffixLen = offsets[splitIdx] - prefixLen;
+        var suffixLen = offsets[splitIdx - 1] - prefixLen;
 
         System.arraycopy(keys, prefixStart, leftKeys, 0, prefixLen);
         System.arraycopy(key, 0, leftKeys, prefixLen, key.length);
@@ -475,11 +475,11 @@ public class PackedByteKeyStorage implements KeyStorage<byte[]> {
 
             newOffsets[insertIdx + 1] = newOffsets[insertIdx] + key.length;
 
-            for (var i = insertIdx + 2; i <= removeIdx; i++) {
-                newOffsets[i] = offsets[i] + key.length;
+            for (var i = insertIdx + 1; i <= removeIdx; i++) {
+                newOffsets[i + 1] = offsets[i] + key.length;
             }
 
-            for (var i = removeIdx + 1; i < newOffsets.length; i++) {
+            for (var i = removeIdx + 2; i < newOffsets.length; i++) {
                 newOffsets[i] = offsets[i] - removedKeyLen + key.length;
             }
 
