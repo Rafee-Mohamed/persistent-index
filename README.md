@@ -55,8 +55,8 @@ The implementation is validated through three tiers:
 ### Creating an index
 
 ```java
-import io.dsal.persistent.index.core.PersistentBPlusTree;
-import io.dsal.persistent.index.layout.ArrayKeyStorageFactory;
+import io.dsal.versioned.index.core.PersistentBPlusTree;
+import io.dsal.versioned.index.layout.ArrayKeyStorageFactory;
 
 var index = new PersistentBPlusTree<String, UserSession>(
         8,
@@ -129,8 +129,8 @@ reader2.start();
 ### Packed byte key storage
 
 ```java
-import io.dsal.persistent.index.layout.PackedByteKeyStorageFactory;
-import io.dsal.persistent.index.layout.LexigographicPackedByteComparator;
+import io.dsal.versioned.index.layout.PackedByteKeyStorageFactory;
+import io.dsal.versioned.index.layout.LexigographicPackedByteComparator;
 import java.nio.charset.StandardCharsets;
 
 var index = new PersistentBPlusTree<byte[], ServiceRoute>(
