@@ -6,6 +6,8 @@ import java.util.function.BiConsumer;
 import java.util.function.BiFunction;
 
 public interface ReadView<K,V> {
+    boolean contains(K key);
+    int size();
     Optional<V> get(K key);
 
     Iterator<Entry<K,V>> iterator(Direction direction);

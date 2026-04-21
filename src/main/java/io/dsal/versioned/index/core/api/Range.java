@@ -1,6 +1,6 @@
 package io.dsal.versioned.index.core.api;
 
-public record Range<K>(
+public record  Range<K>(
         K from,
         K to,
         RangeType type
