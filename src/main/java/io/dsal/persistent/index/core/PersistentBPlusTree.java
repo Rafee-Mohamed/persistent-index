@@ -241,7 +241,7 @@ public class PersistentBPlusTree<K, V> implements Iterable<KeyVal<K, V>> {
      * @param <T>  concrete collection type
      * @return {@code out}
      */
-    <T extends Collection<KeyVal<K, V>>> T range(K from, K to, T out) {
+    public <T extends Collection<KeyVal<K, V>>> T range(K from, K to, T out) {
         var node = root;
         if (node == null) {
             return out;
@@ -265,7 +265,7 @@ public class PersistentBPlusTree<K, V> implements Iterable<KeyVal<K, V>> {
      * @param to       range upper bound (inclusive)
      * @param consumer callback; not called when the range is empty
      */
-    void range(K from, K to, Consumer<KeyVal<K, V>> consumer) {
+    public void range(K from, K to, Consumer<KeyVal<K, V>> consumer) {
         var node = root;
         if (node == null) {
             return;
@@ -292,7 +292,7 @@ public class PersistentBPlusTree<K, V> implements Iterable<KeyVal<K, V>> {
      * @param to       inclusive upper bound
      * @param consumer sink for entries
      */
-    void range(Node<K, V> node, K from, K to, Consumer<KeyVal<K, V>> consumer) {
+    public void range(Node<K, V> node, K from, K to, Consumer<KeyVal<K, V>> consumer) {
         switch (node) {
             case Node.Internal<K, V>(var keys, var children) -> {
                 var startLb = Search.lowerBound(keys, from);
