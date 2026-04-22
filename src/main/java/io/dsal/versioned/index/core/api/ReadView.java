@@ -10,13 +10,17 @@ public interface ReadView<K,V> {
     int size();
     Optional<V> get(K key);
 
-    Iterator<Entry<K,V>> iterator(Direction direction);
+    default Iterator<Entry<K,V>> iterator(Direction direction) {
+        return iterator(direction, DefaultEntry::new);
+    }
 
     default Iterator<Entry<K,V>> iterator() {
         return iterator(Direction.ASC);
     }
 
-    Iterator<Entry<K,V>> iterator(Range<K> range, Direction direction);
+    default Iterator<Entry<K,V>> iterator(Range<K> range, Direction direction) {
+        return iterator(range, direction, DefaultEntry::new);
+    }
 
     default Iterator<Entry<K,V>> iterator(Range<K> range) {
         return iterator(range, Direction.ASC);
