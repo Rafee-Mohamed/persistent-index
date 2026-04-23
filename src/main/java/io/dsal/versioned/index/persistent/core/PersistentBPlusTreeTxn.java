@@ -80,10 +80,6 @@ public class PersistentBPlusTreeTxn<K, V> implements Txn<K, V> {
         return Optional.ofNullable(result.replaced());
     }
 
-    @Override
-    public Optional<V> remove(K key) {
-        return Optional.empty();
-    }
 
 
     private PutResult<K, V> put(Node<K, V> node, K key, V val) {
@@ -101,6 +97,10 @@ public class PersistentBPlusTreeTxn<K, V> implements Txn<K, V> {
         var child = children.child(childIdx);
 
         return switch (put(child, key, val)) {
+            case PutResult.NoSplit<K, V>(var newNode, var replaced) when child == newNode -> new PutResult.NoSplit<>(
+                    node,
+                    replaced
+            );
             case PutResult.NoSplit<K, V>(var newNode, var replaced) -> new PutResult.NoSplit<>(
                     node.mutate(keys, children.replace(childIdx, newNode), exclusive),
                     replaced
@@ -159,6 +159,11 @@ public class PersistentBPlusTreeTxn<K, V> implements Txn<K, V> {
                     keySplit.promotedKey()
             );
         }
+    }
+
+    @Override
+    public Optional<V> remove(K key) {
+        return Optional.empty();
     }
 
     @Override
