@@ -17,6 +17,10 @@ public final class UncommittedState<K, V> {
         return size;
     }
 
+    boolean isEmpty() {
+       return size == 0;
+    }
+
     void setRoot(Node<K, V> newRoot) {
         root = newRoot;
     }

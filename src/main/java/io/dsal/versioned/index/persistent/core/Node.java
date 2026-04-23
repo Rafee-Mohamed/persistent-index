@@ -4,6 +4,8 @@ import io.dsal.versioned.index.persistent.PersistentBPlusTree;
 import io.dsal.versioned.index.persistent.layout.KeyStorage;
 import io.dsal.versioned.index.persistent.layout.ValueStorage;
 
+import java.util.Set;
+
 /**
  * Discriminated union of B+ tree nodes: internal (routing) vs leaf (payload).
  * Structural invariants are enforced by {@link io.dsal.versioned.index.core.PersistentBPlusTree}; storage
@@ -23,8 +25,8 @@ public sealed interface Node<K, V> {
     KeyStorage<K> keys();
 
     final class Internal<K, V> implements Node<K, V> {
-        private final KeyStorage<K> keys;
-        private final Children<K, V> children;
+        private KeyStorage<K> keys;
+        private Children<K, V> children;
 
         public Internal(KeyStorage<K> keys, Children<K, V> children) {
             this.keys = keys;
@@ -40,12 +42,23 @@ public sealed interface Node<K, V> {
             return children;
         }
 
+        public Internal<K, V> mutate(KeyStorage<K> keys, Children<K, V> children, Set<Node<K, V>> exclusive) {
+            if (exclusive.contains(this)) {
+                this.keys = keys;
+                this.children = children;
+                return this;
+            }
+
+            var exclusiveNode = new Node.Internal<>(keys, children);
+            exclusive.add(exclusiveNode);
+            return exclusiveNode;
+        }
 
     }
 
     final class Leaf<K, V> implements Node<K, V> {
-        private final KeyStorage<K> keys;
-        private final ValueStorage<V> values;
+        private KeyStorage<K> keys;
+        private ValueStorage<V> values;
 
         public Leaf(KeyStorage<K> keys, ValueStorage<V> values) {
             this.keys = keys;
@@ -59,6 +72,18 @@ public sealed interface Node<K, V> {
 
         public ValueStorage<V> values() {
             return values;
+        }
+
+        public Leaf<K, V> mutate(KeyStorage<K> keys, ValueStorage<V> values, Set<Node<K, V>> exclusive) {
+            if (exclusive.contains(this)) {
+                this.keys = keys;
+                this.values = values;
+                return this;
+            }
+
+            var exclusiveNode = new Node.Leaf<>(keys, values);
+            exclusive.add(exclusiveNode);
+            return exclusiveNode;
         }
     }
 }
