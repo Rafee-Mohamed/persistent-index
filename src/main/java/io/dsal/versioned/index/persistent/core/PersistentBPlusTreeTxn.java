@@ -2,6 +2,7 @@ package io.dsal.versioned.index.persistent.core;
 
 import io.dsal.versioned.index.api.Direction;
 import io.dsal.versioned.index.api.Range;
+import io.dsal.versioned.index.api.Snapshot;
 import io.dsal.versioned.index.api.Txn;
 import io.dsal.versioned.index.persistent.layout.KeyStorageFactory;
 
@@ -15,13 +16,21 @@ public class PersistentBPlusTreeTxn<K, V> implements Txn<K, V> {
     private final StateCommitter<K, V> committer;
     private final UncommittedState<K, V> us;
     private final KeyStorageFactory<K> ksf;
+    private final Snapshot<K, V> snapshot;
     private final ReadQuery<K, V> query;
 
     private final int maxKeys;
     private final int minKeys;
 
-    public PersistentBPlusTreeTxn(StateCommitter<K, V> committer, KeyStorageFactory<K> ksf, ReadQuery<K, V> query, int maxKeys, int minKeys) {
+    public PersistentBPlusTreeTxn(
+            StateCommitter<K, V> committer,
+            KeyStorageFactory<K> ksf,
+            ReadQuery<K, V> query,
+            int maxKeys,
+            int minKeys
+    ) {
         this.us = new UncommittedState<>(committer.committed());
+        this.snapshot = new PersistentBPlusTreeSnapshot<>(committer.committed(), query);
         this.committer = committer;
         this.ksf = ksf;
         this.query = query;
@@ -76,7 +85,14 @@ public class PersistentBPlusTreeTxn<K, V> implements Txn<K, V> {
     }
 
     @Override
+    public Snapshot<K, V> committed() {
+        return snapshot;
+    }
+
+    @Override
     public void commit() {
         committer.commit(us);
     }
+
+
 }

@@ -1,7 +1,6 @@
 package io.dsal.versioned.index.persistent.core;
 
 import io.dsal.versioned.index.api.Direction;
-import io.dsal.versioned.index.api.Entry;
 import io.dsal.versioned.index.api.Range;
 import io.dsal.versioned.index.api.Snapshot;
 
