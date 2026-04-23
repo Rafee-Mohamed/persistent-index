@@ -11,6 +11,13 @@ import java.util.function.BiConsumer;
 import java.util.function.BiFunction;
 
 public class PersistentBPlusTreeSnapshot<K, V> implements Snapshot<K, V> {
+
+    private final CommittedState<K, V> cs;
+
+    public PersistentBPlusTreeSnapshot(CommittedState<K, V> cs) {
+        this.cs = cs;
+    }
+
     @Override
     public boolean contains(K key) {
         return false;

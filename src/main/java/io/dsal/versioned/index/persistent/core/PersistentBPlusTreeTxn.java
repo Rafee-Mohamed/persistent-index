@@ -4,6 +4,7 @@ import io.dsal.versioned.index.api.Direction;
 import io.dsal.versioned.index.api.Entry;
 import io.dsal.versioned.index.api.Range;
 import io.dsal.versioned.index.api.Txn;
+import io.dsal.versioned.index.persistent.layout.KeyStorageFactory;
 
 import java.util.Iterator;
 import java.util.Optional;
@@ -11,6 +12,22 @@ import java.util.function.BiConsumer;
 import java.util.function.BiFunction;
 
 public class PersistentBPlusTreeTxn<K, V> implements Txn<K, V> {
+
+    private final StateCommitter<K, V> committer;
+    private final UncommittedState<K, V> us;
+    private final KeyStorageFactory<K> ksf;
+
+    private final int maxKeys;
+    private final int minKeys;
+
+    public PersistentBPlusTreeTxn(StateCommitter<K, V> committer, KeyStorageFactory<K> ksf, int maxKeys, int minKeys) {
+        this.us = new UncommittedState<>(committer.committed());
+        this.committer = committer;
+        this.ksf = ksf;
+        this.maxKeys = maxKeys;
+        this.minKeys = minKeys;
+
+    }
 
     @Override
     public Optional<V> put(K key, V value) {
@@ -38,16 +55,6 @@ public class PersistentBPlusTreeTxn<K, V> implements Txn<K, V> {
     }
 
     @Override
-    public Iterator<Entry<K, V>> iterator(Direction direction) {
-        return null;
-    }
-
-    @Override
-    public Iterator<Entry<K, V>> iterator(Range<K> range, Direction direction) {
-        return null;
-    }
-
-    @Override
     public <R> Iterator<R> iterator(Direction direction, BiFunction<K, V, R> mapper) {
         return null;
     }
@@ -69,6 +76,6 @@ public class PersistentBPlusTreeTxn<K, V> implements Txn<K, V> {
 
     @Override
     public void commit() {
-
+        committer.commit(us);
     }
 }
