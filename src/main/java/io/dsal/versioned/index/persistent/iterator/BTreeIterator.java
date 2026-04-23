@@ -1,71 +1,68 @@
 package io.dsal.versioned.index.persistent.iterator;
 
-import io.dsal.versioned.index.core.KeyVal;
+import io.dsal.versioned.index.api.Direction;
 import io.dsal.versioned.index.persistent.core.Node;
-import io.dsal.versioned.index.core.PersistentBPlusTree;
 
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 import java.util.NoSuchElementException;
+import java.util.function.BiFunction;
+import java.util.function.Function;
 
-/**
- * In-order iterator over every {@link KeyVal} in a B+ subtree: leftmost leaf first,
- * then scan along leaves using an internal-node stack ({@code path}) to find the
- * next leaf when the current one is exhausted.
- *
- * <p><b>Snapshot:</b> {@link #of} is given a fixed root; it does not see later
- * structural updates to the tree. Used by {@link PersistentBPlusTree#iterator()}.</p>
- *
- * @param <K> key type
- * @param <V> value type
- * @see PersistentBPlusTree#iterator()
- */
-public class BTreeIterator<K, V> implements Iterator<KeyVal<K, V>> {
 
-    /** Ancestors from root toward {@link #currentLeaf}; each {@link Frame} tracks the next sibling. */
-    private final List<Frame<K, V>> path;
+public class BTreeIterator<K, V, E> implements Iterator<E> {
 
-    /** Leaf whose keys are being emitted. */
-    private Node.Leaf<K, V> currentLeaf;
+    private final List<Iterator<Node<K, V>>> path;
 
-    /** Index of the next key in the current leaf ({@link Node.Leaf#keys()}). */
-    private int currentIdx;
+    private final Function<Node.Internal<K, V>, Iterator<Node<K, V>>> nodePathMapper;
 
-    private BTreeIterator(List<Frame<K, V>> path, Node.Leaf<K, V> leaf) {
+    private final Function<Node.Leaf<K, V>, Iterator<E>>  leafIteratorMapper;
+
+    private Iterator<E> leafEntries;
+
+    private BTreeIterator(
+            List<Iterator<Node<K, V>>> path,
+            Function<Node.Internal<K, V>, Iterator<Node<K, V>>> nodePathMapper,
+            Function<Node.Leaf<K, V>, Iterator<E>> leafIteratorMapper,
+            Iterator<E> leafEntries
+    ) {
         this.path = path;
-        this.currentLeaf = leaf;
-        this.currentIdx = 0;
+        this.nodePathMapper = nodePathMapper;
+        this.leafIteratorMapper = leafIteratorMapper;
+        this.leafEntries = leafEntries;
     }
 
 
-    /**
-     * Positions at the smallest key in {@code node} by descending the left spine to
-     * the first leaf.
-     *
-     * @param <K> key type
-     * @param <V> value type
-     * @param node subtree root (typically {@link PersistentBPlusTree}'s root; must not be {@code null})
-     * @return iterator over that subtree in ascending key order
-     */
-    public static <K, V> BTreeIterator<K, V> of(Node<K, V> node) {
-        var path = new ArrayList<Frame<K, V>>();
+    public static <K, V, E> BTreeIterator<K, V, E> of(Node<K, V> node, Direction direction,  BiFunction<K, V, E> mapper) {
+
+        Function<Node.Internal<K, V>, Iterator<Node<K, V>>> nodePathMapper = switch (direction) {
+            case Direction.ASC -> NodeIterator::new;
+            case Direction.DESC -> ReverseNodeIterator::new;
+        };
+
+        Function<Node.Leaf<K, V>, Iterator<E>>  leafIteratorMapper = switch (direction) {
+            case Direction.ASC -> leaf ->  new LeafIterator<>(leaf, mapper);
+            case Direction.DESC ->  leaf -> new ReverseLeafIterator<>(leaf, mapper);
+        };
+
+        var path = new ArrayList<Iterator<Node<K, V>>>();
         while (node instanceof Node.Internal<K,V> next) {
-            var frame = new Frame<>(next);
-            path.add(frame);
-            node = frame.next();
+            var it = nodePathMapper.apply(next);
+            path.add(it);
+            node = it.next();
         }
 
         assert node instanceof Node.Leaf<K, V>;
         var leaf = (Node.Leaf<K, V>) node;
 
-        return new BTreeIterator<>(path, leaf);
+        return new BTreeIterator<>(path, nodePathMapper, leafIteratorMapper, leafIteratorMapper.apply(leaf));
     }
 
 
     @Override
     public boolean hasNext() {
-        if (currentIdx < currentLeaf.keys().size()) {
+        if (leafEntries.hasNext()) {
             return true;
         }
 
@@ -73,42 +70,32 @@ public class BTreeIterator<K, V> implements Iterator<KeyVal<K, V>> {
             return false;
         }
 
-        var node = path.getLast().next();
-        while (!path.isEmpty() && node == null) {
+        while (!path.isEmpty() && !path.getLast().hasNext()) {
             path.removeLast();
-            if (path.isEmpty()) {
-                break;
-            }
-            node = path.getLast().next();
         }
 
         if (path.isEmpty()) {
             return false;
         }
 
+        var node = path.getLast().next();
         while (node instanceof Node.Internal<K,V> nextNode) {
-            var frame = new Frame<>(nextNode);
-            path.add(frame);
-            node = frame.next();
+            var it = nodePathMapper.apply(nextNode);
+            path.add(it);
+            node = it.next();
         }
 
         assert node instanceof Node.Leaf<K, V>;
-        currentLeaf = (Node.Leaf<K, V>) node;
-        currentIdx = 0;
+        leafEntries = leafIteratorMapper.apply((Node.Leaf<K, V>) node);
 
         return true;
     }
 
-    /**
-     * @return next key–value pair in ascending order
-     * @throws NoSuchElementException if there is no next element
-     */
     @Override
-    public KeyVal<K, V> next() {
+    public E next() {
         if (!hasNext()) {
             throw new NoSuchElementException();
         }
-        var idx = currentIdx++;
-        return new KeyVal<>(currentLeaf.keys().key(idx), currentLeaf.values().val(idx));
+        return leafEntries.next();
     }
 }

@@ -34,23 +34,13 @@ public interface OrderedVersionedIndex<K, V> extends ReadView<K, V>, Mutator<K, 
     }
 
     @Override
-    default Iterator<Entry<K, V>> iterator(Direction direction) {
-        return snapshot().iterator(direction);
-    }
-
-    @Override
-    default Iterator<Entry<K, V>> iterator(Range<K> range, Direction direction) {
-        return snapshot().iterator(range, direction);
-    }
-
-    @Override
     default <R> Iterator<R> iterator(Direction direction, BiFunction<K, V, R> mapper) {
         return snapshot().iterator(direction, mapper);
     }
 
     @Override
-    default <R> Iterator<R> iterator(Range<K> range, Direction direction, BiFunction<K, V, R> mapper) {
-        return snapshot().iterator(range, direction, mapper);
+    default <R> Iterator<R> iterator(Direction direction, Range<K> range, BiFunction<K, V, R> mapper) {
+        return snapshot().iterator(direction, range, mapper);
     }
 
     @Override
@@ -59,8 +49,8 @@ public interface OrderedVersionedIndex<K, V> extends ReadView<K, V>, Mutator<K, 
     }
 
     @Override
-    default void forEach(Range<K> range, Direction direction, BiConsumer<K, V> consumer) {
-        snapshot().forEach(range, direction, consumer);
+    default void forEach(Direction direction, Range<K> range, BiConsumer<K, V> consumer) {
+        snapshot().forEach(direction, range, consumer);
     }
 
     @Override

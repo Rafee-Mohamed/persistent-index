@@ -1,6 +1,6 @@
 package io.dsal.versioned.index.persistent.core;
 
-import io.dsal.versioned.index.core.PersistentBPlusTree;
+import io.dsal.versioned.index.persistent.PersistentBPlusTree;
 import io.dsal.versioned.index.persistent.layout.KeyStorage;
 import io.dsal.versioned.index.persistent.layout.ValueStorage;
 
@@ -20,30 +20,45 @@ import io.dsal.versioned.index.persistent.layout.ValueStorage;
  */
 public sealed interface Node<K, V> {
 
-    /** Separator or leaf keys for this node (never {@code null}). */
     KeyStorage<K> keys();
 
-    /**
-     * Branch node: ordered separator keys and one more child pointer than keys.
-     *
-     * @param keys     internal separators
-     * @param children child subtrees, aligned with {@link Children}
-     */
-    record Internal<K, V>(
-            KeyStorage<K> keys,
-            Children<K, V> children
-    ) implements Node<K, V> {
+    final class Internal<K, V> implements Node<K, V> {
+        private final KeyStorage<K> keys;
+        private final Children<K, V> children;
+
+        public Internal(KeyStorage<K> keys, Children<K, V> children) {
+            this.keys = keys;
+            this.children = children;
+        }
+
+        @Override
+        public KeyStorage<K> keys() {
+            return keys;
+        }
+
+        public Children<K, V> children() {
+            return children;
+        }
+
+
     }
 
-    /**
-     * Leaf node: parallel key and value columns ({@code keys.size() == values.size()}).
-     *
-     * @param keys   sorted leaf keys
-     * @param values values at the same indices as {@code keys}
-     */
-    record Leaf<K, V>(
-            KeyStorage<K> keys,
-            ValueStorage<V> values
-    ) implements Node<K, V> {
+    final class Leaf<K, V> implements Node<K, V> {
+        private final KeyStorage<K> keys;
+        private final ValueStorage<V> values;
+
+        public Leaf(KeyStorage<K> keys, ValueStorage<V> values) {
+            this.keys = keys;
+            this.values = values;
+        }
+
+        @Override
+        public KeyStorage<K> keys() {
+            return keys;
+        }
+
+        public ValueStorage<V> values() {
+            return values;
+        }
     }
 }

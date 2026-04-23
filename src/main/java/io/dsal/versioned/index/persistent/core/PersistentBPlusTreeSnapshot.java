@@ -13,53 +13,45 @@ import java.util.function.BiFunction;
 public class PersistentBPlusTreeSnapshot<K, V> implements Snapshot<K, V> {
 
     private final CommittedState<K, V> cs;
+    private final ReadQuery<K, V> query;
 
-    public PersistentBPlusTreeSnapshot(CommittedState<K, V> cs) {
+    public PersistentBPlusTreeSnapshot(CommittedState<K, V> cs, ReadQuery<K, V> query) {
         this.cs = cs;
+        this.query = query;
     }
 
     @Override
     public boolean contains(K key) {
-        return false;
+        return query.contains(cs.root(), key);
     }
 
     @Override
     public int size() {
-        return 0;
+        return cs.size();
     }
 
     @Override
     public Optional<V> get(K key) {
-        return Optional.empty();
-    }
-
-    @Override
-    public Iterator<Entry<K, V>> iterator(Direction direction) {
-        return null;
-    }
-
-    @Override
-    public Iterator<Entry<K, V>> iterator(Range<K> range, Direction direction) {
-        return null;
+        return query.get(cs.root(), key);
     }
 
     @Override
     public <R> Iterator<R> iterator(Direction direction, BiFunction<K, V, R> mapper) {
-        return null;
+        return query.iterator(cs.root(), direction, mapper);
     }
 
     @Override
-    public <R> Iterator<R> iterator(Range<K> range, Direction direction, BiFunction<K, V, R> mapper) {
-        return null;
+    public <R> Iterator<R> iterator(Direction direction, Range<K> range, BiFunction<K, V, R> mapper) {
+        return query.iterator(cs.root(), direction, range, mapper);
     }
 
     @Override
     public void forEach(Direction direction, BiConsumer<K, V> consumer) {
-
+        query.forEach(cs.root(), direction, consumer);
     }
 
     @Override
-    public void forEach(Range<K> range, Direction direction, BiConsumer<K, V> consumer) {
-
+    public void forEach(Direction direction, Range<K> range, BiConsumer<K, V> consumer) {
+        query.forEach(cs.root(), direction, range, consumer);
     }
 }
