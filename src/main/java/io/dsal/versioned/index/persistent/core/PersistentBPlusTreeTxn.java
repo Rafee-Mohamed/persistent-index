@@ -161,9 +161,343 @@ public class PersistentBPlusTreeTxn<K, V> implements Txn<K, V> {
         }
     }
 
+
     @Override
     public Optional<V> remove(K key) {
-        return Optional.empty();
+        throwIfCommitted();
+        if (us.isEmpty()) {
+            return Optional.empty();
+        }
+
+        var result = remove(us.root(), key);
+        var newRoot = switch (result) {
+            case DeleteResult.NotFound<K, V> _ -> us.root();
+            case DeleteResult.NoShrink<K, V>(var node, _) -> node;
+            case DeleteResult.Shrink<K, V>(var node, _) -> switch (node) {
+                case Node.Internal<K, V> internal
+                        when internal.keys().size() == 0 -> internal.children().child(0);
+                case Node.Leaf<K, V> leaf
+                        when leaf.keys().size() == 0 -> null;
+                default -> node;
+            };
+        };
+
+        if (newRoot != null) {
+            exclusive.add(newRoot);
+        }
+
+        us.setRoot(newRoot);
+
+        if (result.removed() != null) {
+            us.decrement();
+        }
+
+        return Optional.ofNullable(result.removed());
+    }
+
+    public DeleteResult<K, V> remove(Node<K, V> node, K key) {
+        return switch (node) {
+            case Node.Internal<K, V> internal -> removeInternal(internal, key);
+            case Node.Leaf<K, V> leaf -> removeLeaf(leaf, key);
+        };
+    }
+
+    private DeleteResult<K, V> removeInternal(Node.Internal<K, V> node, K key) {
+        var keys = node.keys();
+        var children = node.children();
+
+        var idx = Search.upperBound(keys, key);
+        var child = children.child(idx);
+
+        return switch (remove(child, key)) {
+            case DeleteResult.NotFound<K, V> nf -> nf;
+
+            case DeleteResult.NoShrink<K, V>(var newNode, V removed) when newNode == child -> new DeleteResult.NoShrink<>(
+                    node, removed
+            );
+
+            case DeleteResult.NoShrink<K, V>(var newNode, V removed) -> new DeleteResult.NoShrink<>(
+                    node.mutate(keys, children.replace(idx, newNode), exclusive), removed
+            );
+
+            case DeleteResult.Shrink<K, V>(var newChild, V removed) -> {
+                if (idx > 0 && canBorrow(children.child(idx - 1))) {
+                    var donor = children.child(idx - 1);
+                    var newNode = switch (donor) {
+                        case Node.Leaf<K, V> leafDonor ->
+                                borrowFromLeftSibling((Node.Leaf<K, V>) newChild, leafDonor, node, idx - 1);
+                        case Node.Internal<K, V> internalDonor ->
+                                borrowFromLeftSibling((Node.Internal<K, V>) newChild, internalDonor, node, idx - 1);
+                    };
+
+                    yield new DeleteResult.NoShrink<>(newNode, removed);
+                }
+
+                if (idx < children.size() - 1 && canBorrow(children.child(idx + 1))) {
+                    var donor = children.child(idx + 1);
+                    var newNode = switch (donor) {
+                        case Node.Leaf<K, V> leafDonor ->
+                                borrowFromRightSibling((Node.Leaf<K, V>) newChild, leafDonor, node, idx);
+                        case Node.Internal<K, V> internalDonor ->
+                                borrowFromRightSibling((Node.Internal<K, V>) newChild, internalDonor, node, idx);
+                    };
+
+                    yield new DeleteResult.NoShrink<>(newNode, removed);
+                }
+
+                var newNode = switch (newChild) {
+                    case Node.Leaf<K, V> rightLeaf when idx > 0 -> merge(
+                            (Node.Leaf<K, V>) children.child(idx - 1),
+                            rightLeaf,
+                            node,
+                            idx - 1
+                    );
+                    case Node.Leaf<K, V> leftLeaf -> merge(
+                            leftLeaf,
+                            (Node.Leaf<K, V>) children.child(idx + 1),
+                            node,
+                            idx
+                    );
+                    case Node.Internal<K, V> rightInternal when idx > 0 -> merge(
+                            (Node.Internal<K, V>) children.child(idx - 1),
+                            rightInternal,
+                            node,
+                            idx - 1
+                    );
+                    case Node.Internal<K, V> leftInternal -> merge(
+                            leftInternal,
+                            (Node.Internal<K, V>) children.child(idx + 1),
+                            node,
+                            idx
+                    );
+                };
+
+                yield underflows(newNode.keys())
+                        ? new DeleteResult.Shrink<>(newNode, removed)
+                        : new DeleteResult.NoShrink<>(newNode, removed);
+
+            }
+        };
+    }
+
+    private Node.Internal<K, V> merge(
+            Node.Internal<K, V> left,
+            Node.Internal<K, V> right,
+            Node.Internal<K, V> parent,
+            int parentIdx
+    ) {
+
+        var keys = parent.keys();
+        var children = parent.children();
+
+        var leftKeys = left.keys();
+        var leftChildren = left.children();
+
+        var rightKeys = right.keys();
+        var rightChildren = right.children();
+
+        var separatorKey = keys.key(parentIdx);
+
+        var mergedKeys = leftKeys.insertAndMerge(leftKeys.size(), separatorKey, rightKeys);
+        var mergedChildren = leftChildren.merge(rightChildren);
+        var mergedNode = new Node.Internal<>(mergedKeys, mergedChildren);
+        exclusive.add(mergedNode);
+
+        var newKeys = keys.remove(parentIdx);
+        var newChildren = children.removeAndReplace(parentIdx, mergedNode);
+
+        return parent.mutate(newKeys, newChildren, exclusive);
+    }
+
+    private Node.Internal<K, V> merge(
+            Node.Leaf<K, V> left,
+            Node.Leaf<K, V> right,
+            Node.Internal<K, V> parent,
+            int parentIdx
+    ) {
+
+        var keys = parent.keys();
+        var children = parent.children();
+
+        var leftKeys = left.keys();
+        var leftVals = left.values();
+
+        var rightKeys = right.keys();
+        var rightVals = right.values();
+
+        var mergedKeys = leftKeys.merge(rightKeys);
+        var mergedValues = leftVals.merge(rightVals);
+        var mergedNode = new Node.Leaf<>(mergedKeys, mergedValues);
+        exclusive.add(mergedNode);
+
+        var newKeys = keys.remove(parentIdx);
+        var newChildren = children.removeAndReplace(parentIdx, mergedNode);
+
+        return parent.mutate(newKeys, newChildren, exclusive);
+    }
+
+    private Node.Internal<K, V> borrowFromLeftSibling(
+            Node.Internal<K, V> borrower,
+            Node.Internal<K, V> donor,
+            Node.Internal<K, V> parent,
+            int parentIdx
+    ) {
+
+        var keys = parent.keys();
+        var children = parent.children();
+
+        var donorKeys = donor.keys();
+        var donorChildren = donor.children();
+
+        var borrowerKeys = borrower.keys();
+        var borrowerChildren = borrower.children();
+
+        var depromotedKey = keys.key(parentIdx);
+
+        var last = donorKeys.size() - 1;
+        var promotedKey = donorKeys.key(last);
+        var borrowedChild = donorChildren.child(last + 1);
+
+        var leftKeys = donorKeys.remove(last);
+        var leftChildren = donorChildren.remove(last + 1);
+        var leftNode = donor.mutate(leftKeys, leftChildren, exclusive);
+
+        var rightKeys = borrowerKeys.insert(0, depromotedKey);
+        var rightChildren = borrowerChildren.insert(0, borrowedChild);
+        var rightNode = borrower.mutate(rightKeys, rightChildren, exclusive);
+
+        var newKeys = keys.replace(parentIdx, promotedKey);
+        var newChildren = children.replace(parentIdx, leftNode, rightNode);
+
+        return parent.mutate(newKeys, newChildren, exclusive);
+    }
+
+    private Node.Internal<K, V> borrowFromRightSibling(
+            Node.Internal<K, V> borrower,
+            Node.Internal<K, V> donor,
+            Node.Internal<K, V> parent,
+            int parentIdx
+    ) {
+
+        var keys = parent.keys();
+        var children = parent.children();
+
+        var donorKeys = donor.keys();
+        var donorChildren = donor.children();
+
+        var borrowerKeys = borrower.keys();
+        var borrowerChildren = borrower.children();
+
+        var depromotedKey = keys.key(parentIdx);
+
+        var promotedKey = donorKeys.key(0);
+        var borrowedChild = donorChildren.child(0);
+
+        var rightKeys = donorKeys.remove(0);
+        var rightChildren = donorChildren.remove(0);
+        var rightNode = donor.mutate(rightKeys, rightChildren, exclusive);
+
+        var leftKeys = borrowerKeys.insert(borrowerKeys.size(), depromotedKey);
+        var leftChildren = borrowerChildren.insert(borrowerChildren.size(), borrowedChild);
+        var leftNode = borrower.mutate(leftKeys, leftChildren, exclusive);
+
+        var newKeys = keys.replace(parentIdx, promotedKey);
+        var newChildren = children.replace(parentIdx, leftNode, rightNode);
+
+        return parent.mutate(newKeys, newChildren, exclusive);
+    }
+
+
+    private Node.Internal<K, V> borrowFromLeftSibling(
+            Node.Leaf<K, V> borrower,
+            Node.Leaf<K, V> donor,
+            Node.Internal<K, V> parent,
+            int parentIdx
+    ) {
+
+        var keys = parent.keys();
+        var children = parent.children();
+
+        var donorKeys = donor.keys();
+        var donorVals = donor.values();
+
+        var last = donorKeys.size() - 1;
+        var borrowedKey = donorKeys.key(last);
+        var borrowedVal = donorVals.val(last);
+
+        var leftKeys = donorKeys.remove(last);
+        var leftVals = donorVals.remove(last);
+        var leftNode = donor.mutate(leftKeys, leftVals, exclusive);
+
+        var rightKeys = borrower.keys().insert(0, borrowedKey);
+        var rightVals = borrower.values().insert(0, borrowedVal);
+        var rightNode = borrower.mutate(rightKeys, rightVals, exclusive);
+
+        var newKeys = keys.replace(parentIdx, rightKeys.key(0));
+        var newChildren = children.replace(parentIdx, leftNode, rightNode);
+
+        return parent.mutate(newKeys, newChildren, exclusive);
+    }
+
+
+    private Node.Internal<K, V> borrowFromRightSibling(
+            Node.Leaf<K, V> borrower,
+            Node.Leaf<K, V> donor,
+            Node.Internal<K, V> parent,
+            int parentIdx
+    ) {
+
+        var keys = parent.keys();
+        var children = parent.children();
+
+        var donorKeys = donor.keys();
+        var donorVals = donor.values();
+
+        var borrowedKey = donorKeys.key(0);
+        var borrowedVal = donorVals.val(0);
+
+        var rightKeys = donorKeys.remove(0);
+        var rightVals = donorVals.remove(0);
+        var rightNode = donor.mutate(rightKeys, rightVals, exclusive);
+
+        var leftKeys = borrower.keys()
+                .insert(borrower.keys().size(), borrowedKey);
+        var leftVals = borrower.values()
+                .insert(borrower.values().size(), borrowedVal);
+        var leftNode = borrower.mutate(leftKeys, leftVals, exclusive);
+
+        var newKeys = keys.replace(parentIdx, rightKeys.key(0));
+        var newChildren = children.replace(parentIdx, leftNode, rightNode);
+
+        return parent.mutate(newKeys, newChildren, exclusive);
+    }
+
+    private boolean canBorrow(Node<K, V> node) {
+        return node.keys().size() > minKeys;
+    }
+
+    private boolean underflows(KeyStorage<K> keys) {
+        return keys.size() < minKeys;
+    }
+
+
+    private DeleteResult<K, V> removeLeaf(Node.Leaf<K, V> leaf, K key) {
+        var keys = leaf.keys();
+        var vals = leaf.values();
+        var idx = Search.find(keys, key);
+
+        if (idx < 0) {
+            return new DeleteResult.NotFound<>();
+        }
+
+        var removed = vals.val(idx);
+        var newKeys = keys.remove(idx);
+        var newVals = vals.remove(idx);
+        var newLeaf = leaf.mutate(newKeys, newVals, exclusive);
+
+        return underflows(newKeys)
+                ? new DeleteResult.Shrink<>(newLeaf, removed)
+                : new DeleteResult.NoShrink<>(newLeaf, removed);
     }
 
     @Override
