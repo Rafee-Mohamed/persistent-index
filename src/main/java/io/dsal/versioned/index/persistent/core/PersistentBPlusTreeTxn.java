@@ -543,9 +543,13 @@ public class PersistentBPlusTreeTxn<K, V> implements Txn<K, V> {
     }
 
     @Override
-    public Snapshot<K, V> committed() {
-        throwIfCommitted();
+    public Snapshot<K, V> snapshot() {
         return snapshot;
+    }
+
+    @Override
+    public boolean committed() {
+        return committed;
     }
 
     @Override

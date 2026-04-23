@@ -18,6 +18,12 @@ public interface OrderedVersionedIndex<K, V> extends ReadView<K, V>, Mutator<K, 
         return result;
     }
 
+    default <E extends Exception> void txn(TxnAction<K, V, E> action) throws E {
+        var txn = txn();
+        action.apply(txn);
+        txn.commit();
+    }
+
     @Override
     default boolean contains(K key) {
         return snapshot().contains(key);
@@ -55,11 +61,15 @@ public interface OrderedVersionedIndex<K, V> extends ReadView<K, V>, Mutator<K, 
 
     @Override
     default Optional<V> put(K key, V value) {
-        return txn(th -> th.put(key, value));
+        return txn(th -> {
+           return th.put(key, value);
+        });
     }
 
     @Override
     default Optional<V> remove(K key) {
-        return txn(th -> th.remove(key));
+        return txn(th -> {
+            return th.remove(key);
+        });
     }
 }
