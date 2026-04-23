@@ -1,9 +1,9 @@
-package io.dsal.versioned.index.core.impl;
+package io.dsal.versioned.index.persistent.core;
 
-import io.dsal.versioned.index.core.api.Direction;
-import io.dsal.versioned.index.core.api.Entry;
-import io.dsal.versioned.index.core.api.Range;
-import io.dsal.versioned.index.core.api.Snapshot;
+import io.dsal.versioned.index.api.Direction;
+import io.dsal.versioned.index.api.Entry;
+import io.dsal.versioned.index.api.Range;
+import io.dsal.versioned.index.api.Snapshot;
 
 import java.util.Iterator;
 import java.util.Optional;

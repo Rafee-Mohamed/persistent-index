@@ -1,4 +1,4 @@
-package io.dsal.versioned.index.core.api;
+package io.dsal.versioned.index.api;
 
 @FunctionalInterface
 public interface TxnBlock<K, V, R, E extends Exception> {
