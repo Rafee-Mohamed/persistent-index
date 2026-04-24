@@ -7,6 +7,7 @@ import io.dsal.versioned.index.persistent.core.Node;
 import io.dsal.versioned.index.persistent.util.Search;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
 import java.util.NoSuchElementException;
@@ -155,7 +156,16 @@ public class BoundedBTreeIterator<K, V, E> implements Iterator<E> {
     private static <K, V, E> Function<Node.Leaf<K, V>, Optional<Iterator<E>>>  leafIteratorMapper(Direction direction, Range<K> range, BiFunction<K, V, E> mapper) {
         return switch (direction) {
             case Direction.ASC -> switch (range.type()) {
-                case RangeType.OPEN, RangeType.CLOSED_OPEN ->
+                case RangeType.OPEN ->
+                        nextNode -> {
+                            var start = Search.upperBound(nextNode.keys(), range.from());
+                            var end = Search.predecessor(nextNode.keys(), range.to());
+                            if (end < 0) {
+                                return Optional.empty();
+                            }
+                            return Optional.of(new LeafIterator<>(nextNode, mapper, start, end));
+                        };
+                case RangeType.CLOSED_OPEN ->
                         nextNode -> {
                             var end = Search.predecessor(nextNode.keys(), range.to());
                             if (end < 0) {
@@ -163,13 +173,22 @@ public class BoundedBTreeIterator<K, V, E> implements Iterator<E> {
                             }
                             return Optional.of(new LeafIterator<>(nextNode, mapper, end));
                         };
-                case RangeType.CLOSED, RangeType.OPEN_CLOSED ->
+                case RangeType.CLOSED ->
                         nextNode -> {
                             var end = Search.floor(nextNode.keys(), range.to());
                             if (end < 0) {
                                 return Optional.empty();
                             }
                             return Optional.of(new LeafIterator<>(nextNode, mapper, end));
+                        };
+                case RangeType.OPEN_CLOSED ->
+                        nextNode -> {
+                            var start = Search.upperBound(nextNode.keys(), range.from());
+                            var end = Search.floor(nextNode.keys(), range.to());
+                            if (end < 0) {
+                                return Optional.empty();
+                            }
+                            return Optional.of(new LeafIterator<>(nextNode, mapper, start, end));
                         };
             };
             case Direction.DESC -> switch (range.type()) {
