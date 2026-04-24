@@ -72,7 +72,7 @@ public interface OrderedVersionedIndex<K, V> extends ReadView<K, V>, Mutator<K, 
      * <p>The returned snapshot is stable and is not affected by future commits.
      *
      * <p>Callers inside an active transaction can use {@link Txn#snapshot()} instead,
-     * which returns the same committed state captured at transaction creation time
+     * which returns the same committed state at transaction creation time
      * without an additional call to this method.
      *
      * @return snapshot over latest committed state
