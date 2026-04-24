@@ -21,8 +21,8 @@ public class ReverseLeafIterator<K, V, E> implements Iterator<E> {
         this.mapper = mapper;
     }
 
-    public ReverseLeafIterator(Node.Leaf<K, V> leaf, BiFunction<K, V, E> mapper, int end) {
-        this(leaf, mapper, 0, end);
+    public ReverseLeafIterator(Node.Leaf<K, V> leaf, BiFunction<K, V, E> mapper, int start) {
+        this(leaf, mapper, start, leaf.keys().size() - 1);
     }
 
     public ReverseLeafIterator(Node.Leaf<K, V> leaf, BiFunction<K, V, E> mapper) {

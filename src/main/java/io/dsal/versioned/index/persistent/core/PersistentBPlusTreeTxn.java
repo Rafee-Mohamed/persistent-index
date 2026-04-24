@@ -58,6 +58,7 @@ public class PersistentBPlusTreeTxn<K, V> implements Txn<K, V> {
     public Optional<V> put(K key, V value) {
         throwIfCommitted();
         if (us.isEmpty()) {
+            us.increment();
             us.setRoot(new Node.Leaf<>(ksf.single(key), ValueStorage.of(value)));
             exclusive.add(us.root());
             return Optional.empty();
@@ -73,7 +74,7 @@ public class PersistentBPlusTreeTxn<K, V> implements Txn<K, V> {
         exclusive.add(newRoot);
         us.setRoot(newRoot);
 
-        if (result.replaced() != null) {
+        if (result.replaced() == null) {
             us.increment();
         }
 

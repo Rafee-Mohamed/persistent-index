@@ -5,6 +5,7 @@ import java.util.Optional;
 import java.util.function.BiConsumer;
 import java.util.function.BiFunction;
 
+
 public interface OrderedVersionedIndex<K, V> extends ReadView<K, V>, Mutator<K, V> {
 
     Snapshot<K, V> snapshot();

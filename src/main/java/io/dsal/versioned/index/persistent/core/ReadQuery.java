@@ -16,6 +16,10 @@ public class ReadQuery<K, V> {
     /* ==================== LOOKUP ==================== */
 
     public boolean contains(Node<K, V> node, K key) {
+        if (node == null) {
+            return false;
+        }
+
         return switch (node) {
             case Node.Internal<K, V> internal -> {
                 var childIdx = Search.upperBound(internal.keys(), key);
@@ -27,6 +31,10 @@ public class ReadQuery<K, V> {
     }
 
     public Optional<V> get(Node<K, V> node, K key) {
+        if (node == null) {
+            return Optional.empty();
+        }
+
         return switch (node) {
             case Node.Internal<K, V> internal -> {
                 var childIdx = Search.upperBound(internal.keys(), key);
@@ -42,6 +50,9 @@ public class ReadQuery<K, V> {
     /* ==================== CONSUME RANGE ==================== */
 
     public void forEach(Node<K, V> node, Direction direction, Range<K> range, BiConsumer<K, V> consumer) {
+        if (node == null) {
+            return;
+        }
         switch (direction) {
             case Direction.ASC -> forEach(
                     node,
@@ -114,7 +125,14 @@ public class ReadQuery<K, V> {
         switch (node) {
             case Node.Internal<K, V> internal -> {
                 for (var idx = internalStart.apply(internal); idx <= internalEnd.apply(internal); idx++) {
-                    forEach(internal.children().child(idx), consumer);
+                    forEach(
+                            internal.children().child(idx),
+                            internalStart,
+                            internalEnd,
+                            leafStart,
+                            leafEnd,
+                            consumer
+                    );
                 }
             }
             case Node.Leaf<K, V> leaf -> {
@@ -137,7 +155,14 @@ public class ReadQuery<K, V> {
         switch (node) {
             case Node.Internal<K, V> internal -> {
                 for (var idx = internalEnd.apply(internal); idx >= internalStart.apply(internal); idx--) {
-                    forEach(internal.children().child(idx), consumer);
+                    forEachReverse(
+                            internal.children().child(idx),
+                            internalStart,
+                            internalEnd,
+                            leafStart,
+                            leafEnd,
+                            consumer
+                    );
                 }
             }
             case Node.Leaf<K, V> leaf -> {
@@ -149,6 +174,10 @@ public class ReadQuery<K, V> {
     }
 
     public void forEach(Node<K, V> node, Direction direction, BiConsumer<K, V> consumer) {
+        if (node == null) {
+            return;
+        }
+
         switch (direction) {
             case Direction.ASC -> forEach(node, consumer);
             case Direction.DESC -> forEachReverse(node, consumer);
@@ -175,7 +204,7 @@ public class ReadQuery<K, V> {
         switch (node) {
             case Node.Internal<K, V> internal -> {
                 for (var idx = internal.children().size() - 1; idx >= 0; idx--) {
-                    forEach(internal.children().child(idx), consumer);
+                    forEachReverse(internal.children().child(idx), consumer);
                 }
             }
             case Node.Leaf<K, V> leaf -> {
@@ -189,11 +218,17 @@ public class ReadQuery<K, V> {
     /* ==================== ITERATION ==================== */
 
     public <E> Iterator<E> iterator(Node<K, V> node, Direction direction, BiFunction<K, V, E> mapper) {
+        if (node == null) {
+            return Collections.emptyIterator();
+        }
         return BTreeIterator.of(node, direction, mapper);
     }
 
 
     public <E> Iterator<E> iterator(Node<K, V> node, Direction direction, Range<K> range, BiFunction<K, V, E> mapper) {
+        if (node == null) {
+            return Collections.emptyIterator();
+        }
         return BoundedBTreeIterator.of(node, direction, range, mapper);
     }
 }
