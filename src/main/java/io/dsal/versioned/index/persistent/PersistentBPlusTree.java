@@ -58,11 +58,20 @@ import io.dsal.versioned.index.persistent.layout.KeyStorageFactory;
  */
 public class PersistentBPlusTree<K, V> implements OrderedVersionedIndex<K, V> {
 
+    /**
+     * Minimum valid value for {@code maxKeys}. A node with fewer than two keys
+     * cannot split into two non-empty halves, so values below this are capped.
+     */
+    private static final int MIN_POSSIBLE_KEYS = 2;
+
     /** Factory for key storage instances and key ordering used when creating new nodes. */
     private final KeyStorageFactory<K> ksf;
     /** Holds the current committed state and publishes new states on commit. */
     private final StateCommitter<K, V> committer;
-    /** Maximum keys per node; insertion splits when a node would exceed this count. */
+    /**
+     * Maximum keys per node; insertion splits when a node would exceed this count.
+     * Always {@code >= MIN_POSSIBLE_KEYS}.
+     */
     private final int maxKeys;
     /** Minimum keys required in a non-root node; {@code maxKeys / 2}. */
     private final int minKeys;
@@ -72,12 +81,17 @@ public class PersistentBPlusTree<K, V> implements OrderedVersionedIndex<K, V> {
     /**
      * Creates an empty index.
      *
-     * @param maxKeys maximum number of keys per node before split logic is applied
-     * @param ksf factory used to create key-storage instances and key ordering behavior
+     * <p>Valid values for {@code maxKeys} are {@code >= 2}. Values below
+     * {@value #MIN_POSSIBLE_KEYS} are silently capped to {@value #MIN_POSSIBLE_KEYS}
+     * because a node with fewer than two keys cannot split into two non-empty halves.
+     *
+     * @param maxKeys maximum number of keys per node before split; capped to
+     *                {@value #MIN_POSSIBLE_KEYS} if smaller
+     * @param ksf     factory used to create key-storage instances and key ordering behavior
      */
     public PersistentBPlusTree(int maxKeys, KeyStorageFactory<K> ksf) {
-        this.maxKeys = maxKeys;
-        this.minKeys = maxKeys / 2;
+        this.maxKeys = Math.max(maxKeys, MIN_POSSIBLE_KEYS);
+        this.minKeys = this.maxKeys / 2;
         this.ksf = ksf;
         this.committer = new StateCommitter<>();
         this.query = new ReadQuery<>();
