@@ -6,8 +6,9 @@ import java.util.function.BiConsumer;
 import java.util.function.BiFunction;
 
 /**
- * A versioned ordered key-value index that provides snapshot-isolated reads
- * and atomic multi-operation transactions.
+ * A versioned ordered key-value index that provides snapshot-isolated reads,
+ * atomic multi-operation transactions, and non-blocking reader-writer semantics
+ * where readers never block the writer and the writer never blocks readers.
  *
  * <p>This interface combines:
  * <ul>
@@ -15,6 +16,23 @@ import java.util.function.BiFunction;
  *   <li>mutations from {@link Mutator}</li>
  *   <li>explicit transactional control via {@link #txn()}</li>
  * </ul>
+ *
+ * <h2>Concurrency contract (MVCC): readers never block the writer; the writer never blocks readers</h2>
+ *
+ * <p>Reads and writes are non-blocking with respect to each other:
+ * <ul>
+ *   <li><b>Readers never block the writer</b>: an in-progress read imposes
+ *       no constraint on a concurrent or same-thread write transaction.</li>
+ *   <li><b>The writer never blocks readers</b>: an in-progress write transaction
+ *       imposes no constraint on acquiring or reading any snapshot, including
+ *       on the same thread.</li>
+ * </ul>
+ *
+ * <p>Only one writer may hold an open transaction at a time (single-writer);
+ * concurrent write transactions lead to lost updates and require external
+ * coordination. Concurrent readers require none.
+ *
+ * <p>{@link Txn} instances are mutable and must be thread-confined.
  *
  * <p><b>Read semantics</b>:
  * <ul>
@@ -43,19 +61,6 @@ import java.util.function.BiFunction;
  * Optional<Integer> old2 = index.txn(th -> th.put("k1", 42));
  * }</pre>
  *
- * <p><b>Concurrency model</b>:
- * <ul>
- *   <li>intended for single-writer, multiple-reader workloads</li>
- *   <li>concurrent readers are expected to use snapshots or read defaults</li>
- *   <li>behavior for concurrent writers is implementation-specific unless documented otherwise</li>
- * </ul>
- *
- * <p><b>Thread-safety notes</b>:
- * <ul>
- *   <li>read operations on immutable snapshots are expected to be safe for concurrent use</li>
- *   <li>{@link Txn} handles are mutable and should be treated as thread-confined</li>
- * </ul>
- *
  * @param <K> key type
  * @param <V> value type
  */
@@ -65,6 +70,10 @@ public interface OrderedVersionedIndex<K, V> extends ReadView<K, V>, Mutator<K, 
      * Returns a snapshot of the latest committed state.
      *
      * <p>The returned snapshot is stable and is not affected by future commits.
+     *
+     * <p>Callers inside an active transaction can use {@link Txn#snapshot()} instead,
+     * which returns the same committed state captured at transaction creation time
+     * without an additional call to this method.
      *
      * @return snapshot over latest committed state
      */
