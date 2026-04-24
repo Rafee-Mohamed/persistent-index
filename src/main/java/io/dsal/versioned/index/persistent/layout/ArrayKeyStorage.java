@@ -87,6 +87,14 @@ public class ArrayKeyStorage<K> implements KeyStorage<K> {
         return new ArrayKeyStorage<>(newKeys, comparator);
     }
 
+    /**
+     * Returns storage holding keys in the half-open range {@code [from, to)}.
+     *
+     * @param from start index (inclusive)
+     * @param to   end index (exclusive)
+     * @return storage containing {@code keys[from..to)}
+     * @throws IndexOutOfBoundsException if the range is invalid
+     */
     public KeyStorage<K> copy(int from, int to) {
         if (from > to) {
             throw new IllegalArgumentException("Invalid range for copy [from, to]: [" + from + ", " + to + "]");

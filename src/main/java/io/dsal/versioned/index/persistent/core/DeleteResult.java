@@ -1,9 +1,9 @@
 package io.dsal.versioned.index.persistent.core;
 
-import io.dsal.versioned.index.core.PersistentBPlusTree;
+import io.dsal.versioned.index.persistent.PersistentBPlusTree;
 
 /**
- * Outcome of {@link io.dsal.versioned.index.core.PersistentBPlusTree}'s recursive delete: key missing, delete with
+ * Outcome of recursive delete in {@link PersistentBPlusTreeTxn}: key missing, delete with
  * no structural shrink at this level, or delete where a child underflowed
  * ({@code Shrink}) so an ancestor may need borrow or merge.
  *
@@ -13,7 +13,7 @@ import io.dsal.versioned.index.core.PersistentBPlusTree;
  *   Shrink     --&gt;  child too empty; parent may rebalance or merge upward
  * </pre>
  *
- * <p>See {@link io.dsal.versioned.index.core.PersistentBPlusTree#remove(Node, Object) PersistentBPlusTree.remove(Node&lt;K,V&gt;, K)}.</p>
+ * <p>See {@link PersistentBPlusTreeTxn#remove remove(K)} for the top-level transaction operation.</p>
  *
  * @param <K> key type
  * @param <V> value type
@@ -46,7 +46,7 @@ public sealed interface DeleteResult<K, V> {
     /**
      * Delete applied but a child violated minimum fill after the removal; the
      * returned {@code node} is the current subtree root for the parent to repair
-     * (borrow, merge, or hoist). May chain up until {@link PersistentBPlusTree}
+     * (borrow, merge, or hoist). May chain up until {@link PersistentBPlusTreeTxn}
      * absorbs the shrink at the root.
      *
      * @param node    subtree root after delete (may underflow)

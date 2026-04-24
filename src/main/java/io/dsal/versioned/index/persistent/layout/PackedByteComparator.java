@@ -5,7 +5,7 @@ package io.dsal.versioned.index.persistent.layout;
  * key. Used by {@link PackedByteKeyStorage#compare(int, byte[])} so keys can be
  * stored contiguously without per-key {@code byte[]} objects.
  *
- * <p>Return sign convention matches {@link java.util.Comparator#compare(Object, Object)}
+ * <p>Return sign convention matches {@code java.util.Comparator.compare}
  * for the ordering relation between the slice and {@code key}.</p>
  *
  * @see LexigographicPackedByteComparator

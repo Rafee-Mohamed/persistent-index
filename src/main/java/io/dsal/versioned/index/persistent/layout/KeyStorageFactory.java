@@ -2,7 +2,7 @@ package io.dsal.versioned.index.persistent.layout;
 
 /**
  * Builds a one-key {@link KeyStorage} and fixes the key order for that storage.
- * {@link io.dsal.versioned.index.core.PersistentBPlusTree} uses this to create
+ * {@link io.dsal.versioned.index.persistent.PersistentBPlusTree} uses this to create
  * initial leaf keys and to thread
  * the comparator through node operations; see {@link KeyStorage} for sequence
  * semantics.

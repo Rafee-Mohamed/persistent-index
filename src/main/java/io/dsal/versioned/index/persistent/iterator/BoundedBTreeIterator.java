@@ -14,14 +14,34 @@ import java.util.Optional;
 import java.util.function.BiFunction;
 import java.util.function.Function;
 
+/**
+ * Lazy iterator over entries in a {@link io.dsal.versioned.index.api.Range} of a
+ * B+ tree, in ascending or descending key order.
+ *
+ * <p>Descent uses range-aware child selection at each internal node so only subtrees
+ * that can contain keys within the range are visited. Leaves outside the range
+ * produce empty optional iterators and are skipped in {@link #hasNext()}. The tree
+ * must not be structurally modified while the iterator is in use.
+ *
+ * @param <K> key type
+ * @param <V> value type
+ * @param <E> element type produced by the mapper
+ */
 public class BoundedBTreeIterator<K, V, E> implements Iterator<E> {
 
+    /** Ancestor path stack; each entry iterates an internal node's children. */
     private final List<Iterator<Node<K, V>>> path;
 
+    /** Full-range child iterator for interior nodes (used after the initial descent). */
     private final Function<Node.Internal<K, V>, Iterator<Node<K, V>>> nodePathMapper;
 
+    /**
+     * Produces a range-bounded leaf entry iterator; returns {@link Optional#empty()}
+     * when the leaf falls entirely outside the range.
+     */
     private final Function<Node.Leaf<K, V>, Optional<Iterator<E>>>  leafIteratorMapper;
 
+    /** Active leaf entry iterator; exhausted when the current leaf is done. */
     private Iterator<E> leafEntries;
 
     private BoundedBTreeIterator(
@@ -36,6 +56,19 @@ public class BoundedBTreeIterator<K, V, E> implements Iterator<E> {
         this.leafEntries = leafEntries;
     }
 
+    /**
+     * Creates a range-bounded iterator positioned at the first entry in {@code range}
+     * and {@code direction} order.
+     *
+     * @param node      tree root; must not be {@code null}
+     * @param direction traversal direction
+     * @param range     range bounds and endpoint policy
+     * @param mapper    function applied to each key-value pair
+     * @param <K>       key type
+     * @param <V>       value type
+     * @param <E>       element type
+     * @return iterator over entries within the range in direction order
+     */
     public static <K, V, E> BoundedBTreeIterator<K, V, E> of(Node<K, V> node, Direction direction, Range<K> range, BiFunction<K, V, E> mapper) {
         var nodeBoundedPathMapper = BoundedBTreeIterator.<K, V>nodeBoundedPathMapper(direction, range);
         var leafIteratorMapper = leafIteratorMapper(direction, range, mapper);
@@ -85,6 +118,17 @@ public class BoundedBTreeIterator<K, V, E> implements Iterator<E> {
         return new BoundedBTreeIterator<>(path, nodePathMapper, leafIteratorMapper, leafEntries);
     }
 
+    /**
+     * Produces a range-aware child iterator for the initial descent into internal
+     * nodes: starts at the child covering the range start, ends at the child
+     * covering the range end, based on {@code direction} and bound type.
+     *
+     * @param direction traversal direction
+     * @param range     range to constrain the initial descent
+     * @param <K>       key type
+     * @param <V>       value type
+     * @return function mapping an internal node to a bounded child iterator
+     */
     private static <K, V> Function<Node.Internal<K, V>, Iterator<Node<K, V>>> nodeBoundedPathMapper(Direction direction, Range<K> range) {
         return switch (direction) {
             case Direction.ASC ->
@@ -94,6 +138,20 @@ public class BoundedBTreeIterator<K, V, E> implements Iterator<E> {
         };
     }
 
+    /**
+     * Produces a factory that yields a range-bounded leaf entry iterator, or
+     * {@link Optional#empty()} when the leaf contains no entries within the range.
+     * The start/end index within each leaf is computed from the range bounds and
+     * bound type using {@link io.dsal.versioned.index.persistent.util.Search} operations.
+     *
+     * @param direction traversal direction
+     * @param range     range bounds
+     * @param mapper    entry mapper
+     * @param <K>       key type
+     * @param <V>       value type
+     * @param <E>       element type
+     * @return function mapping a leaf to an optional bounded entry iterator
+     */
     private static <K, V, E> Function<Node.Leaf<K, V>, Optional<Iterator<E>>>  leafIteratorMapper(Direction direction, Range<K> range, BiFunction<K, V, E> mapper) {
         return switch (direction) {
             case Direction.ASC -> switch (range.type()) {
@@ -152,6 +210,12 @@ public class BoundedBTreeIterator<K, V, E> implements Iterator<E> {
         }
     }
 
+    /**
+     * Advances the path stack to the next leaf and returns a bounded entry iterator
+     * for it, or {@link Optional#empty()} if there are no more leaves in the range.
+     *
+     * @return bounded entry iterator for the next leaf, or empty if exhausted
+     */
     private Optional<Iterator<E>> nextLeafEntries() {
         while (!path.isEmpty() && !path.getLast().hasNext()) {
             path.removeLast();

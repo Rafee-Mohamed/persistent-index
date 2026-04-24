@@ -1,9 +1,9 @@
 package io.dsal.versioned.index.persistent.core;
 
-import io.dsal.versioned.index.core.PersistentBPlusTree;
+import io.dsal.versioned.index.persistent.layout.KeySplit;
 
 /**
- * Outcome of {@link io.dsal.versioned.index.core.PersistentBPlusTree}'s recursive insert: either the subtree
+ * Outcome of recursive insert in {@link PersistentBPlusTreeTxn}: either the subtree
  * shape is unchanged, or a child split produced two subtrees plus a promoted key.
  *
  * <p>{@link #replaced()} defaults to {@code null} (like {@link DeleteResult#removed()}).
@@ -14,7 +14,7 @@ import io.dsal.versioned.index.core.PersistentBPlusTree;
  *   Split     --&gt;  left + right {@link Node}s + {@code promotedKey} for the parent
  * </pre>
  *
- * <p>See {@link PersistentBPlusTree#put(Node, Object, Object) PersistentBPlusTree.put(Node&lt;K,V&gt;, K, V)}.</p>
+ * <p>See {@link PersistentBPlusTreeTxn#put(K, V)} for the top-level transaction operation.</p>
  *
  * @param <K> key type
  * @param <V> value type
@@ -22,7 +22,7 @@ import io.dsal.versioned.index.core.PersistentBPlusTree;
 public sealed interface PutResult<K, V> {
 
     /**
-     * Prior value for this key ({@link java.util.Map#put(Object, Object)} semantics), or
+     * Prior value for this key (map put semantics), or
      * {@code null} if absent or if this result is {@link Split} (default implementation).
      */
     default V replaced() {
@@ -45,7 +45,7 @@ public sealed interface PutResult<K, V> {
      * {@link #replaced()} stays the default {@code null}.
      *
      * <pre>
-     *   promotedKey  = smallest key in the right partition (same as {@link io.dsal.versioned.index.layout.KeySplit})
+     *   promotedKey  = smallest key in the right partition (same as {@link KeySplit})
      *   left | right = new {@link Node.Internal} or {@link Node.Leaf} pair
      * </pre>
      *

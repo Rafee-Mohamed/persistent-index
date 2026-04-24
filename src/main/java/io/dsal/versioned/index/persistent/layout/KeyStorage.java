@@ -214,7 +214,7 @@ public interface KeyStorage<K> extends IndexedComparator<K> {
     KeyStorage<K> merge(KeyStorage<K> other);
 
     /**
-     * Fused {@link #insert(int, Object)} then {@link #split(int)}: inserts
+     * Fused {@link #insert insert(int, K)} then {@link #split(int)}: inserts
      * {@code key} at {@code insertIdx}, then splits the result at {@code splitIdx}.
      *
      * <p>Semantically equivalent to {@code insert(insertIdx, key).split(splitIdx)}.
@@ -243,7 +243,7 @@ public interface KeyStorage<K> extends IndexedComparator<K> {
     }
 
     /**
-     * Fused {@link #insert(int, Object)} then {@link #splitAround(int)}: inserts
+     * Fused {@link #insert insert(int, K)} then {@link #splitAround(int)}: inserts
      * {@code key} at {@code insertIdx}, then splits around {@code splitIdx} on the
      * post-insert sequence.
      *
@@ -271,7 +271,7 @@ public interface KeyStorage<K> extends IndexedComparator<K> {
     }
 
     /**
-     * Fused {@link #remove(int)} then {@link #insert(int, Object)}: removes the
+     * Fused {@link #remove(int)} then {@link #insert insert(int, K)}: removes the
      * key at {@code removeIdx}, then inserts {@code key} at {@code insertIdx} in
      * the <em>reduced</em> sequence.
      *
@@ -297,7 +297,7 @@ public interface KeyStorage<K> extends IndexedComparator<K> {
     }
 
     /**
-     * Fused {@link #insert(int, Object)} then {@link #merge(KeyStorage)}: inserts
+     * Fused {@link #insert insert(int, K)} then {@link #merge(KeyStorage)}: inserts
      * {@code key} at {@code insertIdx}, then merges with {@code other}.
      *
      * <p>Semantically equivalent to {@code insert(insertIdx, key).merge(other)}.

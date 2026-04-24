@@ -1,12 +1,14 @@
 package io.dsal.versioned.index.persistent.core;
 
-import io.dsal.versioned.index.core.PersistentBPlusTree;
+import io.dsal.versioned.index.persistent.PersistentBPlusTree;
+import io.dsal.versioned.index.persistent.layout.KeyStorage;
+import io.dsal.versioned.index.persistent.layout.ValueStorage;
 
 import java.util.Arrays;
 
 /**
  * Child pointers for an {@link Node.Internal} node (copy-on-write). Updated with
- * {@link io.dsal.versioned.index.layout.KeyStorage} in {@link PersistentBPlusTree};
+ * {@link KeyStorage} in {@link PersistentBPlusTree};
  * {@link #insertAndSplit} returns {@link ChildrenSplit} when the parent overflows.
  *
  * <pre>
@@ -14,9 +16,8 @@ import java.util.Arrays;
  *                        ch     c0   c1   c2   c3     index 0..size-1 ; size = keys + 1
  * </pre>
  *
- * <p>Insert index {@code idx} is only {@code [0, size())} (no slot {@code size});
- * unlike {@link io.dsal.versioned.index.layout.KeyStorage#insert(int, Object)}.
- * Leaves use {@link io.dsal.versioned.index.layout.ValueStorage}.</p>
+ * <p>Insert index {@code idx} follows this type's bounds ({@code [0, size()]}).
+ * Leaves use {@link ValueStorage}.</p>
  *
  * @param <K> key type
  * @param <V> value type
@@ -88,15 +89,14 @@ public class Children<K, V> {
     }
 
     /**
-     * Inserts at {@code idx}, shifting right. {@code idx} in {@code [0, size())} only
-     * (no append at {@code size}; unlike {@link io.dsal.versioned.index.layout.KeyStorage#insert(int, Object)}).
+     * Inserts at {@code idx}, shifting right.
      *
      * <pre>
      *   Before:  [ c0 | c1 | c2 | c3 ]     size 4
      *   insert(2, X)  --&gt;  [ c0 | c1 | X | c2 | c3 ]
      * </pre>
      *
-     * @param idx  insertion position in {@code [0, size())}
+     * @param idx  insertion position in {@code [0, size()]}
      * @param node subtree to insert
      * @return new {@code Children} whose {@link #size()} is {@code this.size() + 1}
      * @throws IndexOutOfBoundsException if {@code idx} is not valid for insert
@@ -239,7 +239,7 @@ public class Children<K, V> {
 
     /**
      * Fused remove then insert; same permutation as
-     * {@link io.dsal.versioned.index.layout.KeyStorage#removeAndInsert(int, int, Object)}.
+     * {@link KeyStorage#removeAndInsert removeAndInsert(int, int, K)}.
      * Length unchanged.
      *
      * <pre>
@@ -277,14 +277,14 @@ public class Children<K, V> {
 
     /**
      * Child-slot analogue of
-     * {@link io.dsal.versioned.index.layout.KeyStorage#insertAndSplit(int, int, Object)}:
+     * {@link KeyStorage#insertAndSplit insertAndSplit(int, int, K)}:
      * insert split pair ({@code left}, {@code right}) at {@code insertIdx}, then cut
      * at {@code splitIdx}. Right slot of the pair is index {@code insertIdx + 1}.
      * Returns {@link ChildrenSplit}.
      *
      * <pre>
      *   Use the same {@code insertIdx} and {@code splitIdx} as the parent's
-     *   {@link io.dsal.versioned.index.layout.KeyStorage#insertAndSplit(int, int, Object)}.
+     *   {@link KeyStorage#insertAndSplit insertAndSplit(int, int, K)}.
      *   The right half of the new pair is at child index {@code insertIdx + 1}.
      * </pre>
      *

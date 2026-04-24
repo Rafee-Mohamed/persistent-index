@@ -6,8 +6,8 @@ package io.dsal.versioned.index.persistent.layout;
  * tree navigation without materializing the full sequence as a separate array.
  *
  * <p>The return value follows the same sign convention as
- * {@link java.util.Comparator#compare(Object, Object)}: negative if the stored key
- * is less than {@code key}, zero if equal, positive if greater. Implementations
+ * {@code java.util.Comparator.compare}: negative if the stored key is less than
+ * {@code key}, zero if equal, positive if greater. Implementations
  * must use the same ordering as {@link KeyStorage#key(int)} at {@code idx}.</p>
  */
 public interface IndexedComparator<K> {

@@ -52,7 +52,7 @@ public class ValueStorage<V> {
 
     /**
      * Returns storage with {@code val} inserted at {@code idx}, shifting higher
-     * indices right. Same bounds as {@link KeyStorage#insert(int, Object)}.
+     * indices right. Same bounds as {@link KeyStorage#insert insert(int, K)}.
      *
      * @param idx insertion position in {@code [0, size()]}
      * @param val value to insert
@@ -105,7 +105,8 @@ public class ValueStorage<V> {
     }
 
     /**
-     * Fused remove then insert; same semantics as {@link KeyStorage#removeAndInsert(int, int, Object)}.
+     * Fused remove then insert; same semantics as
+     * {@link KeyStorage#removeAndInsert removeAndInsert(int, int, K)}.
      *
      * @param removeIdx index removed first
      * @param insertIdx insertion index in the reduced sequence
@@ -154,7 +155,7 @@ public class ValueStorage<V> {
 
     /**
      * Inserts {@code val} at {@code idx}, then appends {@code other}. Same layout
-     * as {@link KeyStorage#insertAndMerge(int, Object, KeyStorage)} for paired
+     * as {@link KeyStorage#insertAndMerge insertAndMerge(int, K, KeyStorage)} for paired
      * key/value merge paths.
      *
      * @param insertIdx index at which to insert before merging
@@ -179,7 +180,8 @@ public class ValueStorage<V> {
     }
 
     /**
-     * Fused insert then split; mirrors {@link KeyStorage#insertAndSplit(int, int, Object)}.
+     * Fused insert then split; mirrors
+     * {@link KeyStorage#insertAndSplit insertAndSplit(int, int, K)}.
      * Use with {@link KeySplit} from the same operation so left/right value runs
      * match left/right keys.
      *

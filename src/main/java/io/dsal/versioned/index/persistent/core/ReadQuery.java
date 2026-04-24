@@ -12,9 +12,26 @@ import java.util.function.BiConsumer;
 import java.util.function.BiFunction;
 import java.util.function.Function;
 
+/**
+ * Read-only query engine for tree nodes.
+ *
+ * <p>This component implements point lookup, full traversal, bounded traversal,
+ * and iterator creation for both ascending and descending order. It does not
+ * mutate nodes and can be reused by snapshots and transactions.
+ *
+ * @param <K> key type
+ * @param <V> value type
+ */
 public class ReadQuery<K, V> {
     /* ==================== LOOKUP ==================== */
 
+    /**
+     * Returns whether {@code key} exists in the subtree rooted at {@code node}.
+     *
+     * @param node subtree root, or {@code null} for empty tree
+     * @param key key to test
+     * @return {@code true} if present
+     */
     public boolean contains(Node<K, V> node, K key) {
         if (node == null) {
             return false;
@@ -30,6 +47,13 @@ public class ReadQuery<K, V> {
         };
     }
 
+    /**
+     * Returns the value mapped to {@code key} in the subtree rooted at {@code node}.
+     *
+     * @param node subtree root, or {@code null} for empty tree
+     * @param key key to resolve
+     * @return optional value for the key
+     */
     public Optional<V> get(Node<K, V> node, K key) {
         if (node == null) {
             return Optional.empty();
@@ -49,6 +73,14 @@ public class ReadQuery<K, V> {
 
     /* ==================== CONSUME RANGE ==================== */
 
+    /**
+     * Applies {@code consumer} to entries in {@code range} and {@code direction}.
+     *
+     * @param node subtree root, or {@code null} for empty tree
+     * @param direction traversal direction
+     * @param range range bounds and endpoint policy
+     * @param consumer action to apply for each entry
+     */
     public void forEach(Node<K, V> node, Direction direction, Range<K> range, BiConsumer<K, V> consumer) {
         if (node == null) {
             return;
@@ -74,6 +106,14 @@ public class ReadQuery<K, V> {
     }
 
 
+    /**
+     * Returns a function that computes the first child index to visit in an internal
+     * node based on the range start bound. Uses lower-bound for closed starts and
+     * upper-bound for open starts.
+     *
+     * @param range range whose start bound and type drive the index selection
+     * @return function from internal node to start child index (inclusive)
+     */
     private Function<Node.Internal<K, V>, Integer> internalStart(Range<K> range) {
         return switch (range.type()) {
             case RangeType.CLOSED, RangeType.CLOSED_OPEN ->
@@ -84,6 +124,14 @@ public class ReadQuery<K, V> {
         };
     }
 
+    /**
+     * Returns a function that computes the last child index to visit in an internal
+     * node based on the range end bound. Uses upper-bound for closed ends and
+     * lower-bound for open ends.
+     *
+     * @param range range whose end bound and type drive the index selection
+     * @return function from internal node to end child index (inclusive)
+     */
     private Function<Node.Internal<K, V>, Integer> internalEnd(Range<K> range) {
         return switch (range.type()) {
             case RangeType.CLOSED, RangeType.OPEN_CLOSED ->
@@ -94,6 +142,14 @@ public class ReadQuery<K, V> {
         };
     }
 
+    /**
+     * Returns a function that computes the first key index to yield from a leaf
+     * based on the range start bound. Uses lower-bound for closed starts and
+     * upper-bound for open starts.
+     *
+     * @param range range whose start bound and type drive the index selection
+     * @return function from leaf to start key index (inclusive)
+     */
     private Function<Node.Leaf<K, V>, Integer> leafStart(Range<K> range) {
         return switch (range.type()) {
             case RangeType.CLOSED, RangeType.CLOSED_OPEN ->
@@ -104,6 +160,16 @@ public class ReadQuery<K, V> {
         };
     }
 
+    /**
+     * Returns a function that computes the last key index to yield from a leaf
+     * based on the range end bound. Uses {@link Search#floor} for closed ends
+     * (last key {@code <= to}) and {@link Search#predecessor} for open ends
+     * (last key {@code < to}).
+     *
+     * @param range range whose end bound and type drive the index selection
+     * @return function from leaf to end key index (inclusive); may be {@code -1}
+     *         if no key in the leaf satisfies the bound
+     */
     private Function<Node.Leaf<K, V>, Integer> leafEnd(Range<K> range) {
         return switch (range.type()) {
             case RangeType.CLOSED, RangeType.OPEN_CLOSED ->
@@ -114,6 +180,18 @@ public class ReadQuery<K, V> {
         };
     }
 
+    /**
+     * Recursive ascending range traversal. Internal nodes iterate children from
+     * {@code internalStart} to {@code internalEnd} (inclusive); leaves iterate
+     * entries from {@code leafStart} to {@code leafEnd} (inclusive).
+     *
+     * @param node          subtree root
+     * @param internalStart computes first child index for an internal node
+     * @param internalEnd   computes last child index for an internal node
+     * @param leafStart     computes first key index for a leaf
+     * @param leafEnd       computes last key index for a leaf
+     * @param consumer      action applied to each entry
+     */
     private void forEach(
             Node<K, V> node,
             Function<Node.Internal<K, V>, Integer> internalStart,
@@ -144,6 +222,18 @@ public class ReadQuery<K, V> {
     }
 
 
+    /**
+     * Recursive descending range traversal. Internal nodes iterate children from
+     * {@code internalEnd} down to {@code internalStart} (inclusive); leaves iterate
+     * entries from {@code leafEnd} down to {@code leafStart} (inclusive).
+     *
+     * @param node          subtree root
+     * @param internalStart computes lowest child index for an internal node
+     * @param internalEnd   computes highest child index for an internal node
+     * @param leafStart     computes lowest key index for a leaf
+     * @param leafEnd       computes highest key index for a leaf
+     * @param consumer      action applied to each entry
+     */
     private void forEachReverse(
             Node<K, V> node,
             Function<Node.Internal<K, V>, Integer> internalStart,
@@ -173,6 +263,13 @@ public class ReadQuery<K, V> {
         }
     }
 
+    /**
+     * Applies {@code consumer} to all entries in {@code direction}.
+     *
+     * @param node subtree root, or {@code null} for empty tree
+     * @param direction traversal direction
+     * @param consumer action to apply for each entry
+     */
     public void forEach(Node<K, V> node, Direction direction, BiConsumer<K, V> consumer) {
         if (node == null) {
             return;
@@ -185,6 +282,13 @@ public class ReadQuery<K, V> {
     }
 
 
+    /**
+     * Recursive ascending full-tree traversal; visits all children and leaf entries
+     * in ascending order.
+     *
+     * @param node     subtree root
+     * @param consumer action applied to each entry
+     */
     private void forEach(Node<K, V> node, BiConsumer<K, V> consumer) {
         switch (node) {
             case Node.Internal<K, V> internal -> {
@@ -200,6 +304,13 @@ public class ReadQuery<K, V> {
         }
     }
 
+    /**
+     * Recursive descending full-tree traversal; visits all children and leaf entries
+     * in descending order.
+     *
+     * @param node     subtree root
+     * @param consumer action applied to each entry
+     */
     private void forEachReverse(Node<K, V> node, BiConsumer<K, V> consumer) {
         switch (node) {
             case Node.Internal<K, V> internal -> {
@@ -217,6 +328,15 @@ public class ReadQuery<K, V> {
 
     /* ==================== ITERATION ==================== */
 
+    /**
+     * Returns an iterator over the subtree in {@code direction}.
+     *
+     * @param node subtree root, or {@code null} for empty tree
+     * @param direction traversal direction
+     * @param mapper output mapping for each key-value pair
+     * @param <E> iterator element type
+     * @return iterator over all entries in direction order
+     */
     public <E> Iterator<E> iterator(Node<K, V> node, Direction direction, BiFunction<K, V, E> mapper) {
         if (node == null) {
             return Collections.emptyIterator();
@@ -225,6 +345,16 @@ public class ReadQuery<K, V> {
     }
 
 
+    /**
+     * Returns an iterator over entries in {@code range} and {@code direction}.
+     *
+     * @param node subtree root, or {@code null} for empty tree
+     * @param direction traversal direction
+     * @param range range bounds and endpoint policy
+     * @param mapper output mapping for each key-value pair
+     * @param <E> iterator element type
+     * @return iterator over range-constrained entries in direction order
+     */
     public <E> Iterator<E> iterator(Node<K, V> node, Direction direction, Range<K> range, BiFunction<K, V, E> mapper) {
         if (node == null) {
             return Collections.emptyIterator();

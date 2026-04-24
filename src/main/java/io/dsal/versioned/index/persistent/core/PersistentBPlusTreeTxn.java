@@ -16,20 +16,103 @@ import java.util.Set;
 import java.util.function.BiConsumer;
 import java.util.function.BiFunction;
 
+/**
+ * {@link Txn} implementation for {@link io.dsal.versioned.index.persistent.PersistentBPlusTree}.
+ *
+ * <p>A transaction captures the latest committed state from {@link StateCommitter}
+ * at creation time and builds all mutations into a private {@link UncommittedState}
+ * working tree. Reads through the {@link io.dsal.versioned.index.api.TxnHandle} see
+ * the working state, providing read-your-own-writes semantics. A separate
+ * {@link Snapshot} over the pre-transaction committed state is also captured and
+ * exposed via {@link #snapshot()}; it does not reflect in-transaction writes.
+ *
+ * <h2>Atomicity</h2>
+ *
+ * <p>Mutations accumulate in the working root without touching the committed root.
+ * {@link #commit()} publishes the working root to {@link StateCommitter} in a
+ * single volatile write, making all changes visible atomically to readers that
+ * acquire a new snapshot or transaction after the commit. Readers that already
+ * hold a prior snapshot or transaction are unaffected.
+ *
+ * <pre>
+ *   Committed root (immutable) --+-- readers see stable snapshot
+ *                                |
+ *   Working root (this txn)      |-- mutations accumulate here
+ *                                |
+ *   commit() --&gt; volatile write  --+-- new committed root visible to all
+ * </pre>
+ *
+ * <h2>Copy-on-write and exclusive-node optimization</h2>
+ *
+ * <p>Every node copied from the committed tree is added to {@link #exclusive}.
+ * When a mutation touches a node already in {@code exclusive}, {@link Node.Internal#mutate}
+ * or {@link Node.Leaf#mutate} updates it in place instead of allocating another
+ * copy. This means each shared node is copied at most once per transaction,
+ * regardless of how many operations touch the same path.
+ *
+ * <pre>
+ *   First touch of a committed node:  copy node, add to exclusive
+ *   Later touch of the same node:     update in place (already in exclusive)
+ * </pre>
+ *
+ * <p>Nodes created fresh within the transaction (new leaves on insert, split
+ * results) are also added to {@code exclusive} immediately so the same rule
+ * applies if they are revisited during rebalancing.
+ *
+ * <h2>Structural sharing</h2>
+ *
+ * <p>Only nodes on the root-to-leaf path affected by a mutation are copied.
+ * Unchanged subtrees are referenced as-is from the working root, sharing
+ * structure with the committed tree.
+ *
+ * <p>This type is mutable and not thread-safe. After {@link #commit()} all
+ * methods except {@link #committed()} throw {@link IllegalStateException}.
+ *
+ * @param <K> key type
+ * @param <V> value type
+ */
 public class PersistentBPlusTreeTxn<K, V> implements Txn<K, V> {
 
+    /** Publishes the new committed state on {@link #commit()}. */
     private final StateCommitter<K, V> committer;
+    /** Private mutable working state for this transaction. */
     private final UncommittedState<K, V> us;
+    /** Factory for key storage instances used when creating new nodes. */
     private final KeyStorageFactory<K> ksf;
+    /** Committed snapshot captured at the start of this transaction. */
     private final Snapshot<K, V> snapshot;
+    /** Read engine shared with snapshots; used for all read operations. */
     private final ReadQuery<K, V> query;
+    /**
+     * Nodes that belong exclusively to this transaction. A node is exclusive if
+     * it was freshly created during this transaction (split result, new leaf) or
+     * has already been copied once from the committed tree. Exclusive nodes may
+     * be mutated in place by {@link Node.Internal#mutate} and {@link Node.Leaf#mutate},
+     * ensuring each shared node is copied at most once per transaction.
+     */
     private final Set<Node<K, V>> exclusive;
 
+    /** Maximum number of keys per node before a split is required. */
     private final int maxKeys;
+    /**
+     * Minimum number of keys required in a non-root node; {@code maxKeys / 2}.
+     * A node with fewer keys after deletion has underflowed and triggers
+     * borrow or merge at its parent.
+     */
     private final int minKeys;
 
+    /** {@code true} after {@link #commit()} has been called. */
     private boolean committed;
 
+    /**
+     * Creates a transaction from the latest committed state.
+     *
+     * @param committer committed-state publisher used on commit
+     * @param ksf key-storage factory used for newly created key runs
+     * @param query read engine for point/range reads and iteration
+     * @param maxKeys maximum keys per node before split
+     * @param minKeys minimum keys per non-root node before underflow handling
+     */
     public PersistentBPlusTreeTxn(
             StateCommitter<K, V> committer,
             KeyStorageFactory<K> ksf,
@@ -48,12 +131,25 @@ public class PersistentBPlusTreeTxn<K, V> implements Txn<K, V> {
         this.committed = false;
     }
 
+    /**
+     * Throws if this transaction is already committed.
+     *
+     * @throws IllegalStateException if commit was already executed
+     */
     public void throwIfCommitted() {
         if (committed) {
             throw new IllegalStateException("Txn use after committed");
         }
     }
 
+    /**
+     * Inserts or updates one key in the transaction state.
+     *
+     * @param key key to write
+     * @param value value to associate with {@code key}
+     * @return previous value for {@code key}, if present
+     * @throws IllegalStateException if the transaction is already committed
+     */
     @Override
     public Optional<V> put(K key, V value) {
         throwIfCommitted();
@@ -83,6 +179,14 @@ public class PersistentBPlusTreeTxn<K, V> implements Txn<K, V> {
 
 
 
+    /**
+     * Routes insertion to the appropriate node type.
+     *
+     * @param node subtree root to insert into
+     * @param key  key to insert
+     * @param val  value to associate with {@code key}
+     * @return result indicating whether the subtree split and carrying any prior value
+     */
     private PutResult<K, V> put(Node<K, V> node, K key, V val) {
         return switch (node) {
             case Node.Internal<K, V> internal -> putInternal(internal, key, val);
@@ -90,6 +194,23 @@ public class PersistentBPlusTreeTxn<K, V> implements Txn<K, V> {
         };
     }
 
+    /**
+     * Descends to the child covering {@code key} via upper-bound search on separator
+     * keys, applies the recursive result, then either replaces one child pointer,
+     * absorbs a child split, or splits this internal node.
+     *
+     * <h3>Child result handling</h3>
+     * <pre>
+     *  NoSplit (child == newNode) -&gt; child unchanged; this node returned as-is (no copy)
+     *  NoSplit (child != newNode) -&gt; replace children[childIdx] via exclusive mutate
+     *  Split                      -&gt; absorb if room; otherwise split this node too
+     * </pre>
+     *
+     * @param node internal node receiving the insertion
+     * @param key  key to insert
+     * @param val  value to associate with {@code key}
+     * @return updated subtree description for the parent
+     */
     private PutResult<K, V> putInternal(Node.Internal<K, V> node, K key, V val) {
         var keys = node.keys();
         var children = node.children();
@@ -125,6 +246,15 @@ public class PersistentBPlusTreeTxn<K, V> implements Txn<K, V> {
         };
     }
 
+    /**
+     * Leaf-level insert: replace value if key exists; otherwise insert in sorted
+     * position, splitting into two leaves when the node is full.
+     *
+     * @param leaf leaf node receiving the insertion
+     * @param key  key to insert or update
+     * @param val  value to store
+     * @return outcome including the prior value on update, or {@code null} on insert
+     */
     private PutResult<K, V> putLeaf(Node.Leaf<K, V> leaf, K key, V val) {
         var keys = leaf.keys();
         var vals = leaf.values();
@@ -162,7 +292,23 @@ public class PersistentBPlusTreeTxn<K, V> implements Txn<K, V> {
         }
     }
 
-
+    /**
+     * Removes one key from the transaction state.
+     *
+     * <p>After a {@link DeleteResult.Shrink} propagates to the root, the root
+     * is normalized:
+     * <pre>
+     *  Internal root with zero separator keys (one child left):
+     *      =&gt; root becomes that single child (height drops by one)
+     *
+     *  Leaf root with zero keys (last entry removed):
+     *      =&gt; root becomes null (tree is empty)
+     * </pre>
+     *
+     * @param key key to remove
+     * @return removed value, if present
+     * @throws IllegalStateException if the transaction is already committed
+     */
     @Override
     public Optional<V> remove(K key) {
         throwIfCommitted();
@@ -196,6 +342,13 @@ public class PersistentBPlusTreeTxn<K, V> implements Txn<K, V> {
         return Optional.ofNullable(result.removed());
     }
 
+    /**
+     * Routes deletion to the appropriate node type.
+     *
+     * @param node subtree root to remove from
+     * @param key  key to remove
+     * @return result indicating whether the key was found, the subtree shrank, and the removed value
+     */
     public DeleteResult<K, V> remove(Node<K, V> node, K key) {
         return switch (node) {
             case Node.Internal<K, V> internal -> removeInternal(internal, key);
@@ -203,6 +356,32 @@ public class PersistentBPlusTreeTxn<K, V> implements Txn<K, V> {
         };
     }
 
+    /**
+     * Recurses into one child (upper-bound index {@code idx}), then repairs the
+     * subtree if the child reports {@link DeleteResult.Shrink}.
+     *
+     * <h3>Child result handling</h3>
+     * <pre>
+     *  NotFound               -&gt; bubble up unchanged (nothing to splice)
+     *  NoShrink (same child)  -&gt; this node returned as-is (no copy)
+     *  NoShrink (new child)   -&gt; replace children[idx] with the updated child only
+     *  Shrink                 -&gt; child violated min fill; try rebalance at this level
+     * </pre>
+     *
+     * <h3>Shrink repair order (fixed)</h3>
+     * <ol>
+     *   <li>Left borrow: sibling at {@code idx - 1} has {@code keys.size() &gt; minKeys}</li>
+     *   <li>Right borrow: sibling at {@code idx + 1} has spare keys</li>
+     *   <li>Merge: combine child with a neighbor; parent loses one separator</li>
+     * </ol>
+     *
+     * <p>After merge, the updated parent may itself underflow; the method returns
+     * {@link DeleteResult.Shrink} again so the grandparent can run the same logic.</p>
+     *
+     * @param node internal node receiving the deletion
+     * @param key  key to remove
+     * @return result to propagate upward
+     */
     private DeleteResult<K, V> removeInternal(Node.Internal<K, V> node, K key) {
         var keys = node.keys();
         var children = node.children();
@@ -281,6 +460,27 @@ public class PersistentBPlusTreeTxn<K, V> implements Txn<K, V> {
         };
     }
 
+    /**
+     * Merges two adjacent branch children when neither can lend a key.
+     *
+     * <pre>
+     *  Before (parent view):
+     *      ... | Kp | ...
+     *           /   \
+     *         left  right
+     *
+     *  After:
+     *      merged.keys     = left.keys ++ [Kp] ++ right.keys
+     *      merged.children = left.children ++ right.children
+     *      parent drops Kp and one child pointer
+     * </pre>
+     *
+     * @param left      left branch child (smaller keys)
+     * @param right     right branch child
+     * @param parent    parent holding both siblings
+     * @param parentIdx index of Kp in {@code parent.keys()}
+     * @return updated parent after merge
+     */
     private Node.Internal<K, V> merge(
             Node.Internal<K, V> left,
             Node.Internal<K, V> right,
@@ -310,6 +510,22 @@ public class PersistentBPlusTreeTxn<K, V> implements Txn<K, V> {
         return parent.mutate(newKeys, newChildren, exclusive);
     }
 
+    /**
+     * Merges two adjacent leaf children: concatenates key/value pairs and removes
+     * the parent separator between them (leaves do not hold that key).
+     *
+     * <pre>
+     *  merged.keys   = left.keys ++ right.keys
+     *  merged.values = left.values ++ right.values
+     *  parent loses keys[parentIdx] and one child pointer
+     * </pre>
+     *
+     * @param left      left leaf node
+     * @param right     right leaf node
+     * @param parent    parent holding both siblings
+     * @param parentIdx separator index in {@code parent.keys()} between left and right
+     * @return updated parent after merge
+     */
     private Node.Internal<K, V> merge(
             Node.Leaf<K, V> left,
             Node.Leaf<K, V> right,
@@ -337,6 +553,27 @@ public class PersistentBPlusTreeTxn<K, V> implements Txn<K, V> {
         return parent.mutate(newKeys, newChildren, exclusive);
     }
 
+    /**
+     * Redistributes from the left sibling branch into the underflowing right sibling
+     * via a key rotation through the parent separator at {@code parentIdx}.
+     *
+     * <pre>
+     *  Parent:   ... | Kp | ...
+     *               /     \
+     *            donor   borrower   (donor.keys.size() &gt; minKeys)
+     *
+     *  promoted = donor's last key (removed from donor)
+     *  borrowed = donor's last child (removed from donor)
+     *  Kp prepended to borrower; borrowed child becomes borrower's first child
+     *  parent.keys[parentIdx] := promoted
+     * </pre>
+     *
+     * @param borrower  underflowing right branch child
+     * @param donor     left sibling with more than {@code minKeys} keys
+     * @param parent    parent holding both siblings
+     * @param parentIdx index of Kp in {@code parent.keys()}
+     * @return updated parent after the borrow
+     */
     private Node.Internal<K, V> borrowFromLeftSibling(
             Node.Internal<K, V> borrower,
             Node.Internal<K, V> donor,
@@ -373,6 +610,27 @@ public class PersistentBPlusTreeTxn<K, V> implements Txn<K, V> {
         return parent.mutate(newKeys, newChildren, exclusive);
     }
 
+    /**
+     * Mirror of {@link #borrowFromLeftSibling(Node.Internal, Node.Internal, Node.Internal, int)}:
+     * redistributes from the right sibling into the underflowing left sibling.
+     *
+     * <pre>
+     *  Parent:   ... | Kp | ...
+     *               /     \
+     *          borrower   donor   (donor.keys.size() &gt; minKeys)
+     *
+     *  promoted = donor's first key (removed from donor)
+     *  borrowed = donor's first child (removed from donor)
+     *  Kp appended to borrower; borrowed child becomes borrower's last child
+     *  parent.keys[parentIdx] := promoted
+     * </pre>
+     *
+     * @param borrower  underflowing left branch child
+     * @param donor     right sibling with more than {@code minKeys} keys
+     * @param parent    parent holding both siblings
+     * @param parentIdx index of Kp in {@code parent.keys()}
+     * @return updated parent after the borrow
+     */
     private Node.Internal<K, V> borrowFromRightSibling(
             Node.Internal<K, V> borrower,
             Node.Internal<K, V> donor,
@@ -409,6 +667,26 @@ public class PersistentBPlusTreeTxn<K, V> implements Txn<K, V> {
     }
 
 
+    /**
+     * Redistributes one entry from the left sibling leaf into the underflowing right
+     * sibling leaf. {@code donor.keys.size() > minKeys} (see {@link #canBorrow}).
+     *
+     * <pre>
+     *  donor (left)     borrower (right)
+     *  [ 10, 20, 30 ]   [ 40 ]          | size 1 &lt; minKeys: underflow
+     *
+     *  Move last entry (30) from donor to front of borrower:
+     *  [ 10, 20 ]       [ 30, 40 ]      | both &gt;= minKeys
+     *
+     *  parent.keys[parentIdx] := 30  (new first key of right leaf)
+     * </pre>
+     *
+     * @param borrower  right leaf node (underflowed)
+     * @param donor     left sibling leaf with spare keys
+     * @param parent    parent holding both siblings
+     * @param parentIdx separator index in {@code parent.keys()} between donor and borrower
+     * @return updated parent after the borrow
+     */
     private Node.Internal<K, V> borrowFromLeftSibling(
             Node.Leaf<K, V> borrower,
             Node.Leaf<K, V> donor,
@@ -441,6 +719,27 @@ public class PersistentBPlusTreeTxn<K, V> implements Txn<K, V> {
     }
 
 
+    /**
+     * Redistributes one entry from the right sibling leaf into the underflowing left
+     * sibling leaf. Symmetric to
+     * {@link #borrowFromLeftSibling(Node.Leaf, Node.Leaf, Node.Internal, int)}.
+     *
+     * <pre>
+     *  borrower (left)   donor (right)
+     *  [ 10 ]            [ 20, 30, 40 ]   | left has 1 &lt; minKeys: underflow
+     *
+     *  Move first entry (20) from donor to end of borrower:
+     *  [ 10, 20 ]        [ 30, 40 ]       | both &gt;= minKeys
+     *
+     *  parent.keys[parentIdx] := 30  (new first key of right leaf)
+     * </pre>
+     *
+     * @param borrower  left leaf node (underflowed)
+     * @param donor     right sibling leaf with spare keys
+     * @param parent    parent holding both siblings
+     * @param parentIdx separator index in {@code parent.keys()} between borrower and donor
+     * @return updated parent after the borrow
+     */
     private Node.Internal<K, V> borrowFromRightSibling(
             Node.Leaf<K, V> borrower,
             Node.Leaf<K, V> donor,
@@ -473,15 +772,37 @@ public class PersistentBPlusTreeTxn<K, V> implements Txn<K, V> {
         return parent.mutate(newKeys, newChildren, exclusive);
     }
 
+    /**
+     * Returns {@code true} if {@code node} can donate one key and still satisfy
+     * the minimum fill requirement ({@code keys.size() > minKeys}).
+     *
+     * @param node candidate donor sibling
+     * @return {@code true} if a borrow is possible before resorting to merge
+     */
     private boolean canBorrow(Node<K, V> node) {
         return node.keys().size() > minKeys;
     }
 
+    /**
+     * Returns {@code true} if a node's key count is below the minimum required for
+     * a non-root node after deletion ({@code keys.size() < minKeys}).
+     *
+     * @param keys key storage to check
+     * @return {@code true} if the node underflows
+     */
     private boolean underflows(KeyStorage<K> keys) {
         return keys.size() < minKeys;
     }
 
 
+    /**
+     * Deletes at the only level that stores values. Returns {@link DeleteResult.Shrink}
+     * when the new key count falls below {@link #minKeys} so the parent can rebalance.
+     *
+     * @param leaf leaf node to remove from
+     * @param key  key to remove
+     * @return {@link DeleteResult.NotFound} if absent; otherwise shrink or no-shrink
+     */
     private DeleteResult<K, V> removeLeaf(Node.Leaf<K, V> leaf, K key) {
         var keys = leaf.keys();
         var vals = leaf.values();
@@ -500,60 +821,131 @@ public class PersistentBPlusTreeTxn<K, V> implements Txn<K, V> {
                 ? new DeleteResult.Shrink<>(newLeaf, removed)
                 : new DeleteResult.NoShrink<>(newLeaf, removed);
     }
-
+    /**
+     * Returns whether {@code key} is visible in this transaction state.
+     *
+     * @param key key to test
+     * @return {@code true} if present in current transactional state
+     * @throws IllegalStateException if the transaction is already committed
+     */
     @Override
     public boolean contains(K key) {
         throwIfCommitted();
         return query.contains(us.root(), key);
     }
-
+    /**
+     * Returns the number of entries currently visible in this transaction state.
+     *
+     * @return transactional size
+     * @throws IllegalStateException if the transaction is already committed
+     */
     @Override
     public int size() {
         throwIfCommitted();
         return us.size();
     }
-
+    /**
+     * Returns the value currently visible for {@code key} in this transaction.
+     *
+     * @param key key to resolve
+     * @return value currently visible in transaction state, if present
+     * @throws IllegalStateException if the transaction is already committed
+     */
     @Override
     public Optional<V> get(K key) {
         throwIfCommitted();
         return query.get(us.root(), key);
     }
 
+    /**
+     * Returns an iterator over all entries in the current transaction state in
+     * {@code direction} order, transforming each entry with {@code mapper}.
+     *
+     * @param direction traversal direction
+     * @param mapper    function applied to each key-value pair
+     * @param <R>       iterator element type
+     * @return iterator over the current working state
+     * @throws IllegalStateException if the transaction is already committed
+     */
     @Override
     public <R> Iterator<R> iterator(Direction direction, BiFunction<K, V, R> mapper) {
         throwIfCommitted();
         return query.iterator(us.root(), direction, mapper);
     }
 
+    /**
+     * Returns an iterator over entries in {@code range} within the current
+     * transaction state, in {@code direction} order.
+     *
+     * @param direction traversal direction
+     * @param range     range bounds and endpoint policy
+     * @param mapper    function applied to each key-value pair
+     * @param <R>       iterator element type
+     * @return range-bounded iterator over the current working state
+     * @throws IllegalStateException if the transaction is already committed
+     */
     @Override
     public <R> Iterator<R> iterator(Direction direction, Range<K> range, BiFunction<K, V, R> mapper) {
         throwIfCommitted();
         return query.iterator(us.root(), direction, range, mapper);
     }
 
+    /**
+     * Applies {@code consumer} to all entries in the current transaction state in
+     * {@code direction} order.
+     *
+     * @param direction traversal direction
+     * @param consumer  action applied to each key-value pair
+     * @throws IllegalStateException if the transaction is already committed
+     */
     @Override
     public void forEach(Direction direction, BiConsumer<K, V> consumer) {
         throwIfCommitted();
         query.forEach(us.root(), direction, consumer);
     }
 
+    /**
+     * Applies {@code consumer} to entries in {@code range} within the current
+     * transaction state, in {@code direction} order.
+     *
+     * @param direction traversal direction
+     * @param range     range bounds and endpoint policy
+     * @param consumer  action applied to each key-value pair
+     * @throws IllegalStateException if the transaction is already committed
+     */
     @Override
     public void forEach(Direction direction, Range<K> range, BiConsumer<K, V> consumer) {
         throwIfCommitted();
         query.forEach(us.root(), direction, range, consumer);
     }
-
+    /**
+     * Returns the base committed snapshot captured when this transaction started.
+     *
+     * <p>The returned snapshot does not include writes performed through this
+     * transaction.
+     *
+     * @return base snapshot at transaction start
+     * @throws IllegalStateException if the transaction is already committed
+     */
     @Override
     public Snapshot<K, V> snapshot() {
         throwIfCommitted();
         return snapshot;
     }
-
+    /**
+     * Returns whether this transaction has already been committed.
+     *
+     * @return {@code true} if committed, otherwise {@code false}
+     */
     @Override
     public boolean committed() {
         return committed;
     }
-
+    /**
+     * Commits the current uncommitted state and invalidates this transaction.
+     *
+     * @throws IllegalStateException if the transaction is already committed
+     */
     @Override
     public void commit() {
         throwIfCommitted();
