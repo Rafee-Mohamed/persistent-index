@@ -1,6 +1,5 @@
 package io.dsal.versioned.index.persistent.iterator;
 
-import io.dsal.versioned.index.api.Entry;
 import io.dsal.versioned.index.persistent.core.Node;
 
 import java.util.Iterator;

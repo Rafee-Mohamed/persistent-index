@@ -15,7 +15,7 @@ public class ReverseNodeIterator<K, V>  implements Iterator<Node<K, V>> {
     }
 
     ReverseNodeIterator(Node.Internal<K, V> node) {
-        this(node, 0);
+        this(node, node.keys().size() - 1);
     }
 
     @Override

@@ -81,6 +81,11 @@ public class BoundedBTreeIterator<K, V, E> implements Iterator<E> {
             case Direction.DESC -> new ReverseLeafIterator<>(leaf, mapper, start, end);
         };
 
+        // nothing falls into the range(from, to)
+        if (!leafEntries.hasNext()) {
+            path.clear();
+        }
+
         return new BoundedBTreeIterator<>(path, nodePathMapper, leafIteratorMapper, leafEntries);
     }
 
