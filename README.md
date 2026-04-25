@@ -1,6 +1,6 @@
 # versioned-index
 
-A versioned ordered key-value index designed for single-writer, multi-reader workloads, with atomic multi-operation transactions and lock-free snapshot reads. **Readers don't block the writer, the writer doesn't block readers.**
+A versioned ordered key-value index designed for non-blocking single-writer, multi-reader workloads, with atomic multi-operation transactions and snapshot isolated reads. **Readers don't block the writer, the writer doesn't block readers.**
 
 ## OrderedVersionedIndex
 
