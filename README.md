@@ -1,53 +1,65 @@
-# persistent-index
+# versioned-index
 
-A persistent, ordered index built on a copy-on-write B+ tree, designed for single-writer, multi-reader workloads enabling lock-free consistent snapshot reads during concurrent writes - **Readers don't block the writer, the writer doesn't block readers**.
+A versioned ordered key-value index designed for single-writer, multi-reader workloads, with atomic multi-operation transactions and lock-free snapshot reads. **Readers don't block the writer, the writer doesn't block readers.**
 
-> **On the name:** "Persistent" is used in the immutable data structures sense - each write produces a new version while prior versions remain valid. This is not a disk-backed store.
+## OrderedVersionedIndex
+
+`OrderedVersionedIndex<K, V>` is the core abstraction. It is built for systems where writes are serialized by design and reads are concurrent and frequent. Writer publishes writes atomically. Concurrent readers observe a complete, stable state with no locks or coordination.
+
+It combines ordered reads, atomic multi-operation transactions, and snapshot isolation under a non-blocking reader-writer contract.
+
+A `Txn<K, V>` accumulates mutations privately, exposes read-your-own-writes across all read APIs, and makes all changes atomically visible on `commit()`.
+
+A `Snapshot<K, V>` is a stable, immutable read view of a specific committed state, unaffected by subsequent writes or commits.
+
+Only one writer may hold an open transaction at a time. Concurrent readers require no coordination or locks.
 
 
-## Overview
+## PersistentBPlusTree
 
-`persistent-index` is built for systems where writes are serialized by design and reads are concurrent and frequent. Writer publishes writes atomically. Concurrent readers observe a complete, stable state with no locks or coordination.
+`PersistentBPlusTree<K, V>` is the provided implementation of `OrderedVersionedIndex<K, V>`, built on a copy-on-write B+ tree.
 
-The index supports point lookup, inclusive range reads, ordered iteration, insert with replace semantics, and delete with value-return semantics. Structural invariants are preserved throughout all write operations.
+### Architecture
 
+The index is a copy-on-write B+ tree where every write rebuilds only the affected root-to-leaf path, reusing untouched subtrees via structural sharing. Commit is a single atomic pointer publish. Readers that captured a prior root continue on a stable, immutable view for the lifetime of their operation - no locks, no coordination.
 
-## Architecture
-
-### Copy-on-write and SWMR
-
-The index is a B+ tree where every write rebuilds only the affected root-to-leaf path, reusing untouched subtrees through structural sharing. A new root is published atomically. Readers that captured a previous root continue on a stable, immutable snapshot for the lifetime of their operation - no locks, no coordination required.
-
-Multiple concurrent readers need no synchronization. Multiple concurrent writers are not coordinated - the intended model is a single external writer, matching workloads where writes are already serialized upstream.
+Multi-operation transactions track which nodes have already been copied into an exclusive set. Subsequent mutations to the same node within the same transaction mutate in-place rather than copying again. This makes a multi-write transaction cheaper than the equivalent number of sequential single-operation writes.
 
 ![B+ Tree Copy-on-Write](docs/images/persistent_bplus_tree.svg)
 
-**Write: put(85)**
-1. Copy only the affected path: `R0 → [82 | 93] → [82 87 91]`
+**Write**
+
+```java
+var txn = index.txn();
+txn.put(85, 'value');
+txn.commit()
+```
+1. Copy only the affected path: `R0 -> [82 | 93] -> [82 87 91]`
 2. Insert into the copied leaf, producing `[82 85 87 91]`
-3. Publish the new root pointer `R1`
+3. Commit the new root pointer `R1`
 
 **Read behavior**
-- Readers holding `R0` see a stable structure for the lifetime of their operation
-- New reads after `R1` is published observe the updated snapshot
+- Readers holding `R0` snapshot see a stable structure for the lifetime of their operation
+- New reads after `R1` is published observe the updated state
 
 ### Pluggable key storage
 
-Tree logic is decoupled from key representation through the `KeyStorage` interface - it defines how keys are stored, compared, and transformed during splits and merges. Two implementations are provided:
+Tree logic is decoupled from key representation through the `KeyStorage` interface. Two implementations are provided:
 
-- **`ArrayKeyStorage`** - keys in an `Object[]`, ordered by a `Comparator`. General purpose baseline.
-- **`PackedByteKeyStorage`** - all keys in a node packed into a single `byte[]` with an offset table. Reduces heap pointer indirection and object overhead for byte-key workloads. Designed for cache-friendly node scans.
+- **`ArrayKeyStorage`** - keys in an `Object[]`, ordered by a `Comparator`. General-purpose baseline.
+- **`PackedByteKeyStorage`** - all keys in a node packed into a single `byte[]` with an offset table. Reduces heap pointer indirection and object overhead for byte-key workloads.
 
-New storage representations - such as prefix-compressed keys - require only a new `KeyStorage` implementation. The tree algorithms are unaffected.
+New storage representations require only a new `KeyStorage` implementation. The tree algorithms are unaffected.
 
 
 ## Testing
 
-The implementation is validated through three tiers:
+The implementation is validated through four tiers:
 
-- **Stateful property-based tests** - jqwik generates randomized action chains of `Put`, `Get`, `Remove`, `Range`, and `Iterate` across 1000 runs, each with a randomly sampled `maxKeys` between 2 and 10. Every action is verified against a `TreeMap`-backed oracle. Low `maxKeys` values force deep trees and aggressive rebalancing. Both storage implementations are tested independently.
-- **Seeded deterministic stress tests** - 20,000 operations against the tree and oracle in parallel, with periodic full iteration and structural checks. Fixed seed makes failures fully reproducible.
-- **Structural invariant validation** - after operations, the tree is walked to assert key ordering, separator alignment, uniform leaf depth, and fill bounds on every node.
+- **Stateful property-based tests** - jqwik generates randomized action chains of `Put`, `Remove`, `Range`, `Iterate`, and `TxnMultiOp` across 1000 runs with `maxKeys` sampled between 2 and 10. Every action is verified against a `TreeMap` backed oracle. Both storage implementations are tested independently.
+- **Seeded deterministic stress tests** - 20,000 randomized operations against the tree and a `TreeMap` oracle in parallel, with periodic full-scan and structural checks. Fixed seed makes failures fully reproducible.
+- **Structural invariant tests** - after puts and removes, the tree is walked to assert key ordering, separator alignment, uniform leaf depth, and fill bounds on every node.
+- **Unit tests** - behavioral assertions covering specific operations and scenarios in isolation, including CRUD, range correctness, transaction read-your-own-writes, and snapshot isolation, across maxKeys 2-8 for both storage implementations.
 
 
 ## Usage
@@ -55,71 +67,138 @@ The implementation is validated through three tiers:
 ### Creating an index
 
 ```java
-import io.dsal.versioned.index.core.PersistentBPlusTree;
-import io.dsal.versioned.index.layout.ArrayKeyStorageFactory;
+import io.dsal.versioned.index.api.OrderedVersionedIndex;
+import io.dsal.versioned.index.persistent.PersistentBPlusTree;
+import io.dsal.versioned.index.persistent.layout.ArrayKeyStorageFactory;
 
-var index = new PersistentBPlusTree<String, UserSession>(
+OrderedVersionedIndex<String, UserSession> index = new PersistentBPlusTree<>(
         8,
         new ArrayKeyStorageFactory<>(String::compareTo)
 );
 ```
 
-### Writing
+### Point reads
 
 ```java
-index.put("user:1001", new UserSession("noah",   Role.ADMIN));
-index.put("user:1002", new UserSession("sophia", Role.VIEWER));
-index.put("user:1002", new UserSession("sophia", Role.EDITOR)); // replaces; returns previous
-index.remove("user:1001");                                       // returns removed session
+Optional<UserSession> session = index.get("user:1001");
+boolean exists = index.contains("user:1001");
+int     count  = index.size();
 ```
 
-### Reading
+### Iteration and range reads
+
+Both `forEach` and `iterator` support a direction and an optional `Range` that restricts the key interval.
+
+| Direction       | Order                |
+|-----------------|----------------------|
+| `Direction.ASC` | ascending key order  |
+| `Direction.DESC`| descending key order |
+
+| Range type         | Lower bound | Upper bound | Interval   |
+|--------------------|-------------|-------------|------------|
+| `closed`           | inclusive   | inclusive   | [from, to] |
+| `open`             | exclusive   | exclusive   | (from, to) |
+| `closedOpen`       | inclusive   | exclusive   | [from, to) |
+| `openClosed`       | exclusive   | inclusive   | (from, to] |
 
 ```java
-var session = index.get("user:1002");
+import io.dsal.versioned.index.api.Direction;
+import io.dsal.versioned.index.api.Range;
 
-var activeSessions = index.range("user:1000", "user:1999"); // inclusive range
-```
+// full scan ascending
+index.forEach(Direction.ASC, (k, v) -> System.out.println(k + " -> " + v));
 
-### Iteration
+// range scan descending, closed [user:1000, user:1999]
+index.forEach(
+        Direction.DESC, 
+        Range.closed("user:1000", "user:1999"),
+        (k, v) -> System.out.println(k + " -> " + v)
+);
 
-```java
-for (var entry : index) {
-    System.out.println(entry.key() + " -> " + entry.val());
-}
-
-var it = index.rangeIterator("user:1000", "user:1999");
+// half-open range iterator [user:1000, user:2000)
+var it = index.iterator(Direction.ASC, Range.closedOpen("user:1000", "user:2000"));
 while (it.hasNext()) {
-    var entry = it.next();
+var entry = it.next();
     System.out.println(entry.key() + " -> " + entry.val());
 }
 ```
 
-Both `iterator()` and `rangeIterator(K, K)` capture the current root at creation time and are unaffected by subsequent writes.
+### Transactions
+
+```java
+// explicit transaction
+var txn = index.txn();
+txn.put("user:1001", new UserSession("noah",   Role.ADMIN));
+txn.put("user:1002", new UserSession("sophia", Role.EDITOR));
+txn.remove("user:1000");
+
+// read-your-own-writes before commit
+Optional<UserSession> local = txn.get("user:1001"); // present
+int size = txn.size();                               // reflects all txn mutations
+
+txn.commit(); // atomic: all changes or none
+```
+
+The `txn(TxnAction)` and `txn(TxnBlock)` overloads scope a transaction to a lambda and commit automatically:
+
+```java
+// action form - no return value
+index.txn(txn -> {
+        txn.put("user:1001", new UserSession("noah",   Role.ADMIN));
+        txn.put("user:1002", new UserSession("sophia", Role.EDITOR));
+        txn.remove("user:1000");
+});
+
+// block form - returns a value
+Optional<UserSession> previous = index.txn(txn -> {
+    txn.remove("user:1000");
+    return txn.put("user:1001", new UserSession("noah", Role.ADMIN));
+});
+```
+
+### Snapshots
+
+```java
+// pin the current committed state
+var snap = index.snapshot();
+
+index.put("user:1003", new UserSession("alex", Role.VIEWER));
+
+snap.get("user:1003"); // Optional.empty() - snap is unaffected
+snap.forEach(Direction.ASC, (k, v) -> process(k, v));
+```
+
+A snapshot captured from inside a transaction reflects the committed state at the time the transaction was opened:
+
+```java
+var txn = index.txn();
+var base = txn.snapshot(); // committed state before this txn
+
+txn.put("user:1004", new UserSession("sam", Role.ADMIN));
+txn.commit();
+
+base.get("user:1004"); // Optional.empty()
+```
 
 ### Single writer, multiple readers
 
 ```java
-final var index = new PersistentBPlusTree<String, UserSession>(
-        8,
-        new ArrayKeyStorageFactory<>(String::compareTo)
-);
+final OrderedVersionedIndex<String, UserSession> index = new PersistentBPlusTree<>(
+        8, new ArrayKeyStorageFactory<>(String::compareTo));
 
-Thread writer = new Thread(() -> {
-    index.put("user:1001", new UserSession("noah",   Role.ADMIN));
-    index.put("user:1002", new UserSession("sophia", Role.EDITOR));
-    index.remove("user:1000");
-});
+Thread writer = new Thread(() ->
+        index.txn(txn -> {
+            txn.put("user:1001", new UserSession("noah",   Role.ADMIN));
+            txn.put("user:1002", new UserSession("sophia", Role.EDITOR));
+            txn.remove("user:1000");
+        }));
 
-Thread reader1 = new Thread(() -> {
-    var snapshot = index.iterator();
-    while (snapshot.hasNext()) snapshot.next();
-});
+Thread reader1 = new Thread(() ->
+        index.snapshot().forEach(Direction.ASC, (k, v) -> process(k, v)));
 
-Thread reader2 = new Thread(() -> {
-    var snapshot = index.rangeIterator("user:1000", "user:1999");
-    while (snapshot.hasNext()) snapshot.next();
-});
+Thread reader2 = new Thread(() ->
+        index.snapshot().forEach(Direction.ASC,
+                Range.closed("user:1000", "user:1999"), (k, v) -> process(k, v)));
 
 writer.start();
 reader1.start();
@@ -129,32 +208,39 @@ reader2.start();
 ### Packed byte key storage
 
 ```java
-import io.dsal.versioned.index.layout.PackedByteKeyStorageFactory;
-import io.dsal.versioned.index.layout.LexigographicPackedByteComparator;
+import io.dsal.versioned.index.persistent.layout.PackedByteKeyStorageFactory;
+import io.dsal.versioned.index.persistent.layout.LexigographicPackedByteComparator;
 import java.nio.charset.StandardCharsets;
 
-var index = new PersistentBPlusTree<byte[], ServiceRoute>(
+OrderedVersionedIndex<byte[], ServiceRoute> index = new PersistentBPlusTree<>(
         8,
         new PackedByteKeyStorageFactory(new LexigographicPackedByteComparator())
 );
 
-index.put("/api/users".getBytes(StandardCharsets.UTF_8),  new ServiceRoute("user-service",   8080));
-index.put("/api/orders".getBytes(StandardCharsets.UTF_8), new ServiceRoute("order-service",  8081));
-index.put("/api/search".getBytes(StandardCharsets.UTF_8), new ServiceRoute("search-service", 8082));
+index.txn(txn -> {
+        txn.put("/api/users".getBytes(StandardCharsets.UTF_8),  new ServiceRoute("user-service",  8080));
+        txn.put("/api/orders".getBytes(StandardCharsets.UTF_8), new ServiceRoute("order-service", 8081));
+        txn.put("/api/search".getBytes(StandardCharsets.UTF_8), new ServiceRoute("search-service",8082));
+});
+
+index.forEach(
+        Direction.ASC,
+        Range.closedOpen("/api/".getBytes(UTF_8), "/api/z".getBytes(UTF_8)),
+        (k, v) -> System.out.println(new String(k) + " -> " + v)
+);
 ```
+
 
 ## Roadmap
 
 - **Performance benchmarking** - JMH benchmarks against `TreeMap` with read-write locks and `ConcurrentSkipListMap` under SWMR workloads
-- **`NavigableMap` compatibility** - implement the standard Java interface for interoperability and discoverability
-- **Pinned read views** - explicit snapshot objects that expose the full read API against a fixed tree version
-- **Batched writes** - accumulate multiple mutations into a single path-copying pass, reducing redundant copies and providing atomic all-or-none visibility for readers
-- **Prefix-compressed key storage** - a third `KeyStorage` implementation for byte-key workloads with common prefixes, reducing memory and comparison cost
+- **`NavigableMap` compatibility** - implement the standard Java interface for interoperability
+- **Prefix-compressed key storage** - a third `KeyStorage` implementation for byte-key workloads with common prefixes
 
 
 ## Background
 
-`persistent-index` was built as the indexing layer for [Axis](https://github.com/Rafee-Mohamed/axis) - a fault-tolerant, strongly consistent distributed key-value store backed by Raft, designed for cluster coordination, distributed locking, and metadata management.
+`versioned-index` was built as the indexing layer for [Axis](https://github.com/Rafee-Mohamed/axis) - a fault-tolerant, strongly consistent distributed key-value store backed by Raft, designed for cluster coordination, distributed locking, and metadata management.
 
 Axis maintains an inverted index of user keys to internal revisions to serve point and range queries. Raft serializes writes via a single leader, enforcing total order and making the system inherently SWMR. Readers need stable snapshots to answer queries consistently against an established state, without being affected by concurrent writes. Rather than reaching for read-write locks, this index was built to match the workload directly: a copy-on-write structure where readers hold lock-free snapshots and the writer publishes atomically. It was later extracted from Axis for independent development and use.
 
